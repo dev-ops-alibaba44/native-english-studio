@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-display: "Noto Serif TC", serif;
+  --font-body: "Noto Sans TC", "Inter", sans-serif;
+}
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  background-color: #faf8f5;
+  color: #1b2240;
+}
+
+:focus-visible {
+  outline: 2px solid #172983;
+  outline-offset: 2px;
+}
