@@ -1,4 +1,5 @@
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   const supabaseConfigured =
@@ -40,6 +41,13 @@ export default function Home() {
           )}
         </p>
       </div>
+
+      <Link
+        href="/login"
+        className="rounded bg-ink px-5 py-2.5 text-sm font-semibold text-white"
+      >
+        前往登入 →
+      </Link>
     </main>
   );
 }
