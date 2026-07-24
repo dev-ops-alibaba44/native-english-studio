@@ -42,6 +42,9 @@ create table if not exists public.profiles (
   agency_id uuid references public.agencies(id) on delete set null,
   -- for students only: their assigned advisor
   primary_advisor_id uuid references public.profiles(id) on delete set null,
+  -- how many students an advisor can reasonably handle at once (advisors only;
+  -- null means "use the app's default of 25")
+  capacity int,
   created_at timestamptz not null default now()
 );
 
@@ -264,6 +267,14 @@ create policy "applications: student updates own" on public.applications
 
 create policy "applications: advisor updates their students'" on public.applications
   for update using (
+    student_id in (select id from public.profiles where primary_advisor_id = auth.uid())
+  );
+
+create policy "applications: student creates own" on public.applications
+  for insert with check (student_id = auth.uid());
+
+create policy "applications: advisor creates for their students" on public.applications
+  for insert with check (
     student_id in (select id from public.profiles where primary_advisor_id = auth.uid())
   );
 

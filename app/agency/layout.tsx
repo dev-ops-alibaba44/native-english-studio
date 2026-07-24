@@ -4,11 +4,13 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 const NAV = [
-  { href: "/advisor", label: "本週關注" },
-  { href: "/advisor/students", label: "學生總覽" },
+  { href: "/agency", label: "機構總覽" },
+  { href: "/agency/capacity", label: "顧問產能" },
+  { href: "/agency/students", label: "學生總覽" },
+  { href: "/agency/billing", label: "帳單與繳費" },
 ];
 
-export default async function AdvisorLayout({
+export default async function AgencyLayout({
   children,
 }: {
   children: React.ReactNode;

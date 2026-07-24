@@ -40,7 +40,7 @@ export default async function StudentLayout({
   return (
     <div className="min-h-screen flex flex-col">
       <header className="flex items-center justify-between px-6 py-3 bg-surface border-b border-line">
-        <Image src="/logo.png" alt="Native English" width={1389} height={288} className="h-auto w-[140px]" />
+        <Image src="/logo-white.png" alt="Native English" width={1288} height={280} className="h-auto w-[140px]" />
         <div className="flex items-center gap-4 text-sm text-slate">
           <span>{profile?.display_name || user.email}</span>
           <form action={signOut}>

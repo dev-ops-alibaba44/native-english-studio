@@ -24,14 +24,18 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .single();
 
-  // The student portal (Batch 3) and advisor portal (Batch 4) are real now —
-  // send those roles straight there. Agency-admin portal is still coming
-  // (Batch 5), so that role still sees this placeholder for now.
+  // The student (Batch 3), advisor (Batch 4), and now agency-admin (Batch 5)
+  // portals are all real — send each role straight there. This placeholder
+  // page is now effectively unreachable for normal accounts, but stays as a
+  // fallback for any future role or an account with no role match.
   if (profile?.role === "student") {
     redirect("/student");
   }
   if (profile?.role === "advisor") {
     redirect("/advisor");
+  }
+  if (profile?.role === "agency_admin") {
+    redirect("/agency");
   }
 
   async function signOut() {
