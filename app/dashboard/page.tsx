@@ -24,6 +24,16 @@ export default async function DashboardPage() {
     .eq("id", user.id)
     .single();
 
+  // The student portal (Batch 3) and advisor portal (Batch 4) are real now —
+  // send those roles straight there. Agency-admin portal is still coming
+  // (Batch 5), so that role still sees this placeholder for now.
+  if (profile?.role === "student") {
+    redirect("/student");
+  }
+  if (profile?.role === "advisor") {
+    redirect("/advisor");
+  }
+
   async function signOut() {
     "use server";
     const supabase = await createClient();

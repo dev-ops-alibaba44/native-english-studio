@@ -1,10 +1,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+// Next.js 16 renamed the "middleware" file convention to "proxy" — same job,
+// same config.matcher syntax, just a new file name and function name.
+//
 // This runs on every request. Its only job is to refresh the Supabase auth
 // session cookie so people don't get randomly logged out mid-visit — it's
 // easy to forget and causes confusing "why was I logged out?" bugs later.
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let response = NextResponse.next({
     request: { headers: request.headers },
   });

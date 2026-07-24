@@ -1,8 +1,19 @@
 -- =====================================================================
--- Native English Studio — Batch 2 database schema
+-- Native English Studio — full database schema
+--
+-- ⚠️ This file is for a BRAND NEW Supabase project only (run once, top
+-- to bottom, on a project that has none of these tables yet). If your
+-- project already has this schema (you'd know — you already ran this
+-- once before), do NOT re-run this whole file. Enum types (the
+-- `create type ... as enum` statements) can't be created twice, and
+-- will error with something like `type "user_role" already exists`.
+--
+-- Instead, for an EXISTING project: look for small, separately-named
+-- patch files in this same folder (e.g. anything with "fix_" or
+-- "patch_" in the name) and run only those — they're written to be
+-- safe to run against a database that already has this schema in place.
+--
 -- Run this in Supabase: Dashboard -> SQL Editor -> New query -> paste -> Run
--- Safe to run once on a fresh project. Re-running will error on things
--- that already exist (tables/policies) — that's expected, not a bug.
 -- =====================================================================
 
 -- ---------------------------------------------------------------------
@@ -18,7 +29,11 @@ create table if not exists public.agencies (
 -- 2. Profiles — one row per person (student, advisor, or agency admin),
 --    extending Supabase's built-in auth.users.
 -- ---------------------------------------------------------------------
-create type public.user_role as enum ('student', 'advisor', 'agency_admin');
+do $$ begin
+  create type public.user_role as enum ('student', 'advisor', 'agency_admin');
+exception
+  when duplicate_object then null; -- already exists, safe to skip
+end $$;
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
@@ -66,9 +81,13 @@ create table if not exists public.schools (
 --    prompt/word-limit directly for MVP simplicity; split into a
 --    separate "essays" table later if a school ever needs >1 essay.
 -- ---------------------------------------------------------------------
-create type public.application_stage as enum (
-  'brainstorm', 'outline', 'draft', 'advisor_feedback', 'revision', 'final'
-);
+do $$ begin
+  create type public.application_stage as enum (
+    'brainstorm', 'outline', 'draft', 'advisor_feedback', 'revision', 'final'
+  );
+exception
+  when duplicate_object then null;
+end $$;
 
 create table if not exists public.applications (
   id uuid primary key default gen_random_uuid(),
@@ -121,7 +140,11 @@ create table if not exists public.qa_messages (
 -- ---------------------------------------------------------------------
 -- 8. Achievements — the student profile builder (awards, ECs, work, skills).
 -- ---------------------------------------------------------------------
-create type public.achievement_category as enum ('award', 'extracurricular', 'work', 'skill');
+do $$ begin
+  create type public.achievement_category as enum ('award', 'extracurricular', 'work', 'skill');
+exception
+  when duplicate_object then null;
+end $$;
 
 create table if not exists public.achievements (
   id uuid primary key default gen_random_uuid(),
@@ -163,9 +186,35 @@ alter table public.parent_links enable row level security;
 create policy "profiles: read own row" on public.profiles
   for select using (id = auth.uid());
 
+-- Helper functions used below: each looks up something about YOUR OWN
+-- profile (role, agency). "security definer" makes them run with
+-- elevated privileges that skip profiles' own RLS policies — this is
+-- what avoids infinite recursion (a policy on profiles that queried
+-- profiles directly would trigger itself forever).
+create or replace function public.current_user_role()
+returns public.user_role
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select role from public.profiles where id = auth.uid();
+$$;
+
+create or replace function public.current_user_agency_id()
+returns uuid
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select agency_id from public.profiles where id = auth.uid();
+$$;
+
 create policy "profiles: agency admin reads their agency" on public.profiles
   for select using (
-    agency_id in (select agency_id from public.profiles where id = auth.uid() and role = 'agency_admin')
+    public.current_user_role() = 'agency_admin'
+    and agency_id = public.current_user_agency_id()
   );
 
 create policy "profiles: advisor reads their students" on public.profiles
