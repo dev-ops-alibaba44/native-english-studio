@@ -7,6 +7,7 @@ import {
   useOthers,
   useSelf,
 } from "@liveblocks/react";
+import { useThreads } from "@liveblocks/react/suspense";
 import {
   useLiveblocksExtension,
   FloatingComposer,
@@ -83,6 +84,7 @@ function CollaborativeEditor({
   onSaveSnapshot?: (formData: FormData) => void | Promise<void>;
 }) {
   const liveblocksExtension = useLiveblocksExtension();
+  const { threads } = useThreads();
 
   const editor = useEditor({
     extensions: [
@@ -165,7 +167,7 @@ function CollaborativeEditor({
 
       <div>
         <h4 className="font-display font-bold text-sm mb-3">評論</h4>
-        <AnchoredThreads editor={editor} />
+        <AnchoredThreads editor={editor} threads={threads} />
       </div>
 
       <style jsx global>{`
@@ -190,14 +192,12 @@ function LoadingState() {
 }
 
 export function LiveDocument({
-  applicationId,
+  roomId,
   onSaveSnapshot,
 }: {
-  applicationId: string;
+  roomId: string;
   onSaveSnapshot?: (formData: FormData) => void | Promise<void>;
 }) {
-  const roomId = `application:${applicationId}`;
-
   return (
     <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
       <RoomProvider id={roomId} initialPresence={{}}>

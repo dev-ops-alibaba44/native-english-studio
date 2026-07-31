@@ -6,9 +6,12 @@ const liveblocks = new Liveblocks({
   secret: process.env.LIVEBLOCKS_SECRET_KEY || "",
 });
 
-// Room ids are always "application:<applicationId>" — see LiveDocument.tsx.
+// Room ids are either "application:<applicationId>" (the main document) or
+// "application:<applicationId>:section:<sectionId>" (an added section) — see
+// LiveDocument usages in the student/advisor/agency pages. Either way,
+// access is governed by the same parent application.
 function applicationIdFromRoomId(roomId: string): string | null {
-  const match = /^application:(.+)$/.exec(roomId);
+  const match = /^application:([^:]+)(?::section:.+)?$/.exec(roomId);
   return match ? match[1] : null;
 }
 

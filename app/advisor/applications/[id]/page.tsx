@@ -3,7 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { STAGE_ORDER, STAGE_LABELS, type Stage } from "@/lib/stages";
 import { LiveDocument } from "@/components/editor/LiveDocument";
+import { SectionTabs } from "@/components/SectionTabs";
 import { saveSnapshot } from "@/app/actions/documents";
+import { addSection } from "@/app/actions/sections";
 import { updateStage } from "./actions";
 
 function wordCount(text: string): number {
@@ -13,6 +15,8 @@ function wordCount(text: string): number {
 const ERROR_MESSAGES: Record<string, string> = {
   stage_failed: "無法更新階段，請稍後再試。",
   snapshot_failed: "無法儲存快照，請稍後再試。",
+  section_title_required: "請輸入段落名稱。",
+  section_failed: "無法新增段落，請稍後再試。",
 };
 
 export default async function AdvisorApplicationPage({
@@ -20,10 +24,10 @@ export default async function AdvisorApplicationPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; section?: string }>;
 }) {
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, section: sectionId } = await searchParams;
   const supabase = await createClient();
 
   const { data: application } = await supabase
@@ -31,6 +35,14 @@ export default async function AdvisorApplicationPage({
     .select("id, prompt_text, word_limit, deadline, stage, schools(name), profiles(display_name)")
     .eq("id", id)
     .single();
+
+  const { data: sections } = await supabase
+    .from("application_sections")
+    .select("id, title, prompt_text, word_limit")
+    .eq("application_id", id)
+    .order("created_at", { ascending: true });
+
+  const roomId = sectionId ? `application:${id}:section:${sectionId}` : `application:${id}`;
 
   const { data: snapshots } = await supabase
     .from("drafts")
@@ -45,6 +57,7 @@ export default async function AdvisorApplicationPage({
   const app = application as any;
   const returnPath = `/advisor/applications/${id}`;
   const saveSnapshotForThisApplication = saveSnapshot.bind(null, id, returnPath);
+  const addSectionForThisApplication = addSection.bind(null, id, returnPath);
   const updateStageForThisApplication = updateStage.bind(null, id);
 
   return (
@@ -91,11 +104,18 @@ export default async function AdvisorApplicationPage({
         </form>
       </div>
 
+      <SectionTabs
+        basePath={returnPath}
+        sections={sections || []}
+        activeSectionId={sectionId || null}
+        addSectionAction={addSectionForThisApplication}
+      />
+
       <div className="rounded border border-brand/20 bg-brand-tint text-xs text-ink px-4 py-2 mb-4">
         這是即時共同編輯文件 — 你、學生、以及機構管理者都可以同時在這裡撰寫與留言。
       </div>
 
-      <LiveDocument applicationId={id} onSaveSnapshot={saveSnapshotForThisApplication} />
+      <LiveDocument key={roomId} roomId={roomId} onSaveSnapshot={saveSnapshotForThisApplication} />
 
       {snapshots && snapshots.length > 0 && (
         <details className="text-sm mt-8">
