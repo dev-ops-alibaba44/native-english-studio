@@ -54,11 +54,26 @@ export default async function ApplicationsPage({
             href={`/student/applications/${app.id}`}
             className="rounded border border-line bg-surface shadow-card p-4 flex flex-col gap-3 hover:border-brand"
           >
-            <div>
-              <div className="font-display font-bold text-base">{app.schools?.name}</div>
-              {app.word_limit && (
-                <div className="text-xs text-slate mt-0.5">{app.word_limit} 字上限</div>
-              )}
+            <div className="flex items-start gap-3">
+              <svg
+                className="w-8 h-8 text-brand shrink-0 mt-0.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path
+                  d="M6 2h8l4 4v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"
+                  fill="rgba(23,41,131,0.08)"
+                />
+                <path d="M14 2v4h4" />
+              </svg>
+              <div>
+                <div className="font-display font-bold text-base">{app.schools?.name}</div>
+                {app.word_limit && (
+                  <div className="text-xs text-slate mt-0.5">{app.word_limit} 字上限</div>
+                )}
+              </div>
             </div>
             <StageThread stage={app.stage as Stage} size="sm" />
             <div className="text-xs text-slate">

@@ -4,7 +4,11 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
-export async function addDraft(applicationId: string, formData: FormData) {
+export async function saveSnapshot(
+  applicationId: string,
+  returnPath: string,
+  formData: FormData
+) {
   const content = (formData.get("content") as string) || "";
   const contentJsonRaw = formData.get("content_json") as string | null;
   let content_json: unknown = null;
@@ -12,7 +16,7 @@ export async function addDraft(applicationId: string, formData: FormData) {
     try {
       content_json = JSON.parse(contentJsonRaw);
     } catch {
-      content_json = null; // fall back to plain text only if parsing ever fails
+      content_json = null;
     }
   }
 
@@ -41,9 +45,9 @@ export async function addDraft(applicationId: string, formData: FormData) {
   });
 
   if (error) {
-    console.error("addDraft failed:", error);
-    redirect(`/student/applications/${applicationId}?error=draft_failed`);
+    console.error("saveSnapshot failed:", error);
+    redirect(`${returnPath}?error=snapshot_failed`);
   }
 
-  revalidatePath(`/student/applications/${applicationId}`);
+  revalidatePath(returnPath);
 }

@@ -2,17 +2,15 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { type Stage } from "@/lib/stages";
-import { DraftEditor } from "@/components/editor/DraftEditor";
-import { AnnotatedDraft } from "@/components/editor/AnnotatedDraft";
-import { LiveRefresh } from "@/components/realtime/LiveRefresh";
-import { addComment } from "./actions";
+import { LiveDocument } from "@/components/editor/LiveDocument";
+import { saveSnapshot } from "@/app/actions/documents";
 
 function wordCount(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
-  comment_failed: "無法送出回饋，請稍後再試。",
+  snapshot_failed: "無法儲存快照，請稍後再試。",
 };
 
 export default async function AgencyApplicationPage({
@@ -20,10 +18,10 @@ export default async function AgencyApplicationPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; version?: string; compare?: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const { id } = await params;
-  const { error, version, compare } = await searchParams;
+  const { error } = await searchParams;
   const supabase = await createClient();
 
   const { data: application } = await supabase
@@ -32,9 +30,9 @@ export default async function AgencyApplicationPage({
     .eq("id", id)
     .single();
 
-  const { data: drafts } = await supabase
+  const { data: snapshots } = await supabase
     .from("drafts")
-    .select("id, content, content_json, version, created_at")
+    .select("id, content, version, created_at")
     .eq("application_id", id)
     .order("version", { ascending: false });
 
@@ -43,42 +41,11 @@ export default async function AgencyApplicationPage({
   }
 
   const app = application as any;
-  const allDrafts = drafts || [];
-  const latestDraft = allDrafts[0];
-  const selectedDraft =
-    (version && allDrafts.find((d) => String(d.version) === version)) || latestDraft;
-  const compareDraft = compare
-    ? allDrafts.find((d) => String(d.version) === compare)
-    : null;
-  const viewingLatest = !version || selectedDraft?.id === latestDraft?.id;
-
-  const { data: comments } = selectedDraft
-    ? await supabase
-        .from("comments")
-        .select("id, body, anchor_text, range_from, range_to, kind, created_at, profiles(display_name)")
-        .eq("draft_id", selectedDraft.id)
-        .order("created_at", { ascending: true })
-    : { data: [] as any[] };
-
-  const addCommentForThisDraft = selectedDraft
-    ? addComment.bind(null, id, selectedDraft.id)
-    : null;
-
-  const commentsForDisplay = (comments || []).map((c: any) => ({
-    id: c.id,
-    body: c.body,
-    anchor_text: c.anchor_text,
-    range_from: c.range_from,
-    range_to: c.range_to,
-    kind: (c.kind as "comment" | "highlight") || "comment",
-    created_at: c.created_at,
-    author_display_name: c.profiles?.display_name || "顧問",
-  }));
+  const returnPath = `/agency/applications/${id}`;
+  const saveSnapshotForThisApplication = saveSnapshot.bind(null, id, returnPath);
 
   return (
     <div>
-      {selectedDraft && <LiveRefresh applicationId={id} draftId={selectedDraft.id} />}
-
       <Link href="/agency/students" className="text-xs text-slate mb-3 inline-block">
         ← 回到學生總覽
       </Link>
@@ -97,101 +64,32 @@ export default async function AgencyApplicationPage({
         </div>
       )}
 
-      <div className="mb-6">
+      <div className="mb-8">
         <StageThread stage={app.stage as Stage} />
       </div>
 
-      {!selectedDraft ? (
-        <p className="text-sm text-slate">學生尚未上傳任何草稿。</p>
-      ) : (
-        <>
-          <div className="flex items-center justify-between mb-2">
-            <h3 className="font-display font-bold text-base">
-              {viewingLatest ? "最新草稿" : `第 ${selectedDraft.version} 版`}
-              <span className="text-xs font-normal text-slate ml-2">
-                {new Date(selectedDraft.created_at).toLocaleString("zh-TW")}
-              </span>
-            </h3>
-          </div>
+      <div className="rounded border border-brand/20 bg-brand-tint text-xs text-ink px-4 py-2 mb-4">
+        這是即時共同編輯文件 — 學生、顧問、以及你都可以同時在這裡撰寫與留言。
+      </div>
 
-          <div className={compareDraft ? "grid grid-cols-1 lg:grid-cols-2 gap-6 mb-4" : "mb-4"}>
-            <div>
-              <AnnotatedDraft
-                key={selectedDraft.id}
-                content={(selectedDraft.content_json as any) || selectedDraft.content || ""}
-                comments={commentsForDisplay}
-                canComment
-                onAddComment={addCommentForThisDraft || undefined}
-              />
-            </div>
-            {compareDraft && (
-              <div>
-                <div className="text-xs font-semibold text-slate mb-2">
-                  比較：第 {compareDraft.version} 版（{new Date(compareDraft.created_at).toLocaleDateString("zh-TW")}）
-                </div>
-                <DraftEditor
-                  key={compareDraft.id}
-                  content={(compareDraft.content_json as any) || compareDraft.content || ""}
-                  editable={false}
-                />
+      <LiveDocument applicationId={id} onSaveSnapshot={saveSnapshotForThisApplication} />
+
+      {snapshots && snapshots.length > 0 && (
+        <details className="text-sm mt-8">
+          <summary className="cursor-pointer text-xs text-slate select-none">
+            查看歷史快照（共 {snapshots.length} 份）
+          </summary>
+          <div className="rounded border border-line bg-surface shadow-card divide-y divide-line mt-2">
+            {snapshots.map((s) => (
+              <div key={s.id} className="p-3 flex items-center justify-between">
+                <span className="text-sm font-semibold">第 {s.version} 份快照</span>
+                <span className="text-xs text-slate">
+                  {new Date(s.created_at).toLocaleString("zh-TW")} · {wordCount(s.content)} 字
+                </span>
               </div>
-            )}
+            ))}
           </div>
-
-          <details className="text-sm">
-            <summary className="cursor-pointer text-xs text-slate select-none">
-              查看所有版本（共 {allDrafts.length} 版）
-            </summary>
-            <div className="rounded border border-line bg-surface shadow-card divide-y divide-line mt-2">
-              {allDrafts.map((d, i) => {
-                const wc = wordCount(d.content);
-                const prevWc = allDrafts[i + 1] ? wordCount(allDrafts[i + 1].content) : null;
-                const delta = prevWc !== null ? wc - prevWc : null;
-                const isSelected = selectedDraft?.id === d.id;
-                const isCompared = compareDraft?.id === d.id;
-                return (
-                  <div
-                    key={d.id}
-                    className={`p-3 flex items-center justify-between ${isSelected ? "bg-brand-tint" : ""}`}
-                  >
-                    <div>
-                      <Link
-                        href={`/agency/applications/${id}?version=${d.version}${compare ? `&compare=${compare}` : ""}`}
-                        className={`text-sm font-semibold hover:underline ${isSelected ? "text-brand" : "text-ink"}`}
-                      >
-                        第 {d.version} 版
-                      </Link>
-                      <span className="text-xs text-slate ml-2">
-                        {new Date(d.created_at).toLocaleString("zh-TW")}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-xs text-slate">
-                        {wc} 字
-                        {delta !== null && (
-                          <span className={delta >= 0 ? "text-good ml-1" : "text-danger ml-1"}>
-                            （{delta >= 0 ? "+" : ""}
-                            {delta}）
-                          </span>
-                        )}
-                      </div>
-                      <Link
-                        href={
-                          isCompared
-                            ? `/agency/applications/${id}?version=${selectedDraft?.version || ""}`
-                            : `/agency/applications/${id}?version=${selectedDraft?.version || ""}&compare=${d.version}`
-                        }
-                        className={`text-xs underline ${isCompared ? "text-brand" : "text-slate"}`}
-                      >
-                        {isCompared ? "取消比較" : "比較"}
-                      </Link>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </details>
-        </>
+        </details>
       )}
     </div>
   );

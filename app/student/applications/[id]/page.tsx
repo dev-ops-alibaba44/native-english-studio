@@ -2,13 +2,15 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { STAGE_LABELS, type Stage } from "@/lib/stages";
-import { DraftComposer } from "@/components/editor/DraftComposer";
-import { AnnotatedDraft } from "@/components/editor/AnnotatedDraft";
-import { LiveRefresh } from "@/components/realtime/LiveRefresh";
-import { addDraft } from "./actions";
+import { LiveDocument } from "@/components/editor/LiveDocument";
+import { saveSnapshot } from "@/app/actions/documents";
+
+function wordCount(text: string): number {
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
 
 const ERROR_MESSAGES: Record<string, string> = {
-  draft_failed: "無法儲存草稿，請稍後再試。",
+  snapshot_failed: "無法儲存快照，請稍後再試。",
 };
 
 export default async function ApplicationDetailPage({
@@ -28,42 +30,22 @@ export default async function ApplicationDetailPage({
     .eq("id", id)
     .single();
 
-  const { data: drafts } = await supabase
+  const { data: snapshots } = await supabase
     .from("drafts")
-    .select("id, content, content_json, version, created_at")
+    .select("id, content, version, created_at")
     .eq("application_id", id)
     .order("version", { ascending: false });
-
-  const latestDraft = drafts?.[0];
-
-  const { data: comments } = latestDraft
-    ? await supabase
-        .from("comments")
-        .select("id, body, anchor_text, range_from, range_to, kind, created_at, profiles(display_name)")
-        .eq("draft_id", latestDraft.id)
-        .order("created_at", { ascending: true })
-    : { data: [] as any[] };
 
   if (!application) {
     return <p className="text-sm text-danger">找不到這個申請項目。</p>;
   }
 
   const app = application as any;
-  const addDraftForThisApplication = addDraft.bind(null, id);
-  const commentsForDisplay = (comments || []).map((c: any) => ({
-    id: c.id,
-    body: c.body,
-    anchor_text: c.anchor_text,
-    range_from: c.range_from,
-    range_to: c.range_to,
-    kind: (c.kind as "comment" | "highlight") || "comment",
-    created_at: c.created_at,
-    author_display_name: c.profiles?.display_name || "顧問",
-  }));
+  const returnPath = `/student/applications/${id}`;
+  const saveSnapshotForThisApplication = saveSnapshot.bind(null, id, returnPath);
 
   return (
     <div>
-      {latestDraft && <LiveRefresh applicationId={id} draftId={latestDraft.id} />}
       <Link href="/student/applications" className="text-xs text-slate mb-3 inline-block">
         ← 回到我的申請
       </Link>
@@ -89,40 +71,28 @@ export default async function ApplicationDetailPage({
         </p>
       </div>
 
-      <h3 className="font-display font-bold text-base mb-2">
-        撰寫草稿{latestDraft ? `（將建立第 ${latestDraft.version + 1} 版）` : ""}
-      </h3>
-      <div className="mb-2">
-        <DraftComposer
-          key={latestDraft?.id || "new"}
-          initialContent={(latestDraft?.content_json as any) || null}
-          initialPlainText={latestDraft?.content || ""}
-          action={addDraftForThisApplication}
-        />
+      <div className="rounded border border-brand/20 bg-brand-tint text-xs text-ink px-4 py-2 mb-4">
+        這是即時共同編輯文件 — 你、顧問、以及機構管理者都可以同時在這裡撰寫與留言。
       </div>
-      {latestDraft?.created_at && (
-        <p className="text-xs text-slate mb-8">
-          上次儲存：
-          {new Date(latestDraft.created_at).toLocaleString("zh-TW", {
-            year: "numeric",
-            month: "long",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </p>
-      )}
 
-      <h3 className="font-display font-bold text-base mb-2">顧問回饋</h3>
-      {!latestDraft ? (
-        <p className="text-sm text-slate">上傳草稿後即可查看顧問回饋。</p>
-      ) : (
-        <AnnotatedDraft
-          key={latestDraft.id}
-          content={(latestDraft.content_json as any) || latestDraft.content || ""}
-          comments={commentsForDisplay}
-          canComment={false}
-        />
+      <LiveDocument applicationId={id} onSaveSnapshot={saveSnapshotForThisApplication} />
+
+      {snapshots && snapshots.length > 0 && (
+        <details className="text-sm mt-8">
+          <summary className="cursor-pointer text-xs text-slate select-none">
+            查看歷史快照（共 {snapshots.length} 份）
+          </summary>
+          <div className="rounded border border-line bg-surface shadow-card divide-y divide-line mt-2">
+            {snapshots.map((s) => (
+              <div key={s.id} className="p-3 flex items-center justify-between">
+                <span className="text-sm font-semibold">第 {s.version} 份快照</span>
+                <span className="text-xs text-slate">
+                  {new Date(s.created_at).toLocaleString("zh-TW")} · {wordCount(s.content)} 字
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );
