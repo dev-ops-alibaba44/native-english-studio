@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
-import { STAGE_ORDER, STAGE_LABELS, type Stage } from "@/lib/stages";
+import { type Stage } from "@/lib/stages";
 import { DraftEditor } from "@/components/editor/DraftEditor";
 import { AnnotatedDraft } from "@/components/editor/AnnotatedDraft";
 import { LiveRefresh } from "@/components/realtime/LiveRefresh";
-import { addComment, updateStage } from "./actions";
+import { addComment } from "./actions";
 
 function wordCount(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
@@ -13,10 +13,9 @@ function wordCount(text: string): number {
 
 const ERROR_MESSAGES: Record<string, string> = {
   comment_failed: "無法送出回饋，請稍後再試。",
-  stage_failed: "無法更新階段，請稍後再試。",
 };
 
-export default async function AdvisorApplicationPage({
+export default async function AgencyApplicationPage({
   params,
   searchParams,
 }: {
@@ -64,7 +63,6 @@ export default async function AdvisorApplicationPage({
   const addCommentForThisDraft = selectedDraft
     ? addComment.bind(null, id, selectedDraft.id)
     : null;
-  const updateStageForThisApplication = updateStage.bind(null, id);
 
   const commentsForDisplay = (comments || []).map((c: any) => ({
     id: c.id,
@@ -81,7 +79,7 @@ export default async function AdvisorApplicationPage({
     <div>
       {selectedDraft && <LiveRefresh applicationId={id} draftId={selectedDraft.id} />}
 
-      <Link href="/advisor/students" className="text-xs text-slate mb-3 inline-block">
+      <Link href="/agency/students" className="text-xs text-slate mb-3 inline-block">
         ← 回到學生總覽
       </Link>
       <h1 className="font-display text-2xl font-bold text-ink mb-1">
@@ -101,26 +99,6 @@ export default async function AdvisorApplicationPage({
 
       <div className="mb-6">
         <StageThread stage={app.stage as Stage} />
-      </div>
-
-      <div className="rounded border border-line bg-surface shadow-card p-4 mb-6 flex items-center gap-3">
-        <span className="text-sm font-medium">更新階段：</span>
-        <form action={updateStageForThisApplication} className="flex items-center gap-2">
-          <select
-            name="stage"
-            defaultValue={app.stage}
-            className="rounded border border-line px-2 py-1.5 text-sm"
-          >
-            {STAGE_ORDER.map((s) => (
-              <option key={s} value={s}>
-                {STAGE_LABELS[s]}
-              </option>
-            ))}
-          </select>
-          <button type="submit" className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white">
-            更新
-          </button>
-        </form>
       </div>
 
       {!selectedDraft ? (
@@ -178,7 +156,7 @@ export default async function AdvisorApplicationPage({
                   >
                     <div>
                       <Link
-                        href={`/advisor/applications/${id}?version=${d.version}${compare ? `&compare=${compare}` : ""}`}
+                        href={`/agency/applications/${id}?version=${d.version}${compare ? `&compare=${compare}` : ""}`}
                         className={`text-sm font-semibold hover:underline ${isSelected ? "text-brand" : "text-ink"}`}
                       >
                         第 {d.version} 版
@@ -200,8 +178,8 @@ export default async function AdvisorApplicationPage({
                       <Link
                         href={
                           isCompared
-                            ? `/advisor/applications/${id}?version=${selectedDraft?.version || ""}`
-                            : `/advisor/applications/${id}?version=${selectedDraft?.version || ""}&compare=${d.version}`
+                            ? `/agency/applications/${id}?version=${selectedDraft?.version || ""}`
+                            : `/agency/applications/${id}?version=${selectedDraft?.version || ""}&compare=${d.version}`
                         }
                         className={`text-xs underline ${isCompared ? "text-brand" : "text-slate"}`}
                       >

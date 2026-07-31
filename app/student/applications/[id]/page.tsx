@@ -2,14 +2,24 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { STAGE_LABELS, type Stage } from "@/lib/stages";
+import { DraftComposer } from "@/components/editor/DraftComposer";
+import { AnnotatedDraft } from "@/components/editor/AnnotatedDraft";
+import { LiveRefresh } from "@/components/realtime/LiveRefresh";
 import { addDraft } from "./actions";
+
+const ERROR_MESSAGES: Record<string, string> = {
+  draft_failed: "無法儲存草稿，請稍後再試。",
+};
 
 export default async function ApplicationDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const { id } = await params;
+  const { error } = await searchParams;
   const supabase = await createClient();
 
   const { data: application } = await supabase
@@ -20,7 +30,7 @@ export default async function ApplicationDetailPage({
 
   const { data: drafts } = await supabase
     .from("drafts")
-    .select("id, content, version, created_at")
+    .select("id, content, content_json, version, created_at")
     .eq("application_id", id)
     .order("version", { ascending: false });
 
@@ -29,7 +39,7 @@ export default async function ApplicationDetailPage({
   const { data: comments } = latestDraft
     ? await supabase
         .from("comments")
-        .select("id, body, anchor_text, created_at, profiles(display_name)")
+        .select("id, body, anchor_text, range_from, range_to, kind, created_at, profiles(display_name)")
         .eq("draft_id", latestDraft.id)
         .order("created_at", { ascending: true })
     : { data: [] as any[] };
@@ -40,9 +50,20 @@ export default async function ApplicationDetailPage({
 
   const app = application as any;
   const addDraftForThisApplication = addDraft.bind(null, id);
+  const commentsForDisplay = (comments || []).map((c: any) => ({
+    id: c.id,
+    body: c.body,
+    anchor_text: c.anchor_text,
+    range_from: c.range_from,
+    range_to: c.range_to,
+    kind: (c.kind as "comment" | "highlight") || "comment",
+    created_at: c.created_at,
+    author_display_name: c.profiles?.display_name || "顧問",
+  }));
 
   return (
     <div>
+      {latestDraft && <LiveRefresh applicationId={id} draftId={latestDraft.id} />}
       <Link href="/student/applications" className="text-xs text-slate mb-3 inline-block">
         ← 回到我的申請
       </Link>
@@ -55,6 +76,12 @@ export default async function ApplicationDetailPage({
         {app.deadline ? `截止日 ${app.deadline}` : "尚未設定截止日"}
       </p>
 
+      {error && (
+        <div className="rounded border border-danger/30 bg-danger-tint text-danger text-sm px-4 py-3 mb-6">
+          {ERROR_MESSAGES[error] || "發生錯誤，請稍後再試。"}
+        </div>
+      )}
+
       <div className="mb-8">
         <StageThread stage={app.stage as Stage} />
         <p className="text-xs text-slate mt-2">
@@ -63,44 +90,40 @@ export default async function ApplicationDetailPage({
       </div>
 
       <h3 className="font-display font-bold text-base mb-2">
-        目前草稿{latestDraft ? `（第 ${latestDraft.version} 版）` : ""}
+        撰寫草稿{latestDraft ? `（將建立第 ${latestDraft.version + 1} 版）` : ""}
       </h3>
-      <form action={addDraftForThisApplication} className="mb-8">
-        <textarea
-          name="content"
-          rows={10}
-          defaultValue={latestDraft?.content || ""}
-          className="w-full rounded border border-line px-4 py-3 text-sm leading-relaxed outline-none focus:border-brand mb-3"
-          placeholder="開始寫下你的草稿……"
+      <div className="mb-2">
+        <DraftComposer
+          key={latestDraft?.id || "new"}
+          initialContent={(latestDraft?.content_json as any) || null}
+          initialPlainText={latestDraft?.content || ""}
+          action={addDraftForThisApplication}
         />
-        <button
-          type="submit"
-          className="rounded bg-ink px-4 py-2 text-sm font-semibold text-white"
-        >
-          儲存新版本
-        </button>
-      </form>
+      </div>
+      {latestDraft?.created_at && (
+        <p className="text-xs text-slate mb-8">
+          上次儲存：
+          {new Date(latestDraft.created_at).toLocaleString("zh-TW", {
+            year: "numeric",
+            month: "long",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </p>
+      )}
 
       <h3 className="font-display font-bold text-base mb-2">顧問回饋</h3>
-      <div className="rounded border border-line bg-surface shadow-card divide-y divide-line">
-        {!comments || comments.length === 0 ? (
-          <p className="p-4 text-sm text-slate">
-            尚無顧問回饋 — 顧問功能將在下一批次開放。
-          </p>
-        ) : (
-          comments.map((c: any) => (
-            <div key={c.id} className="p-4">
-              {c.anchor_text && (
-                <div className="text-xs italic text-slate mb-1">針對「{c.anchor_text}」</div>
-              )}
-              <div className="text-xs font-bold text-brand mb-1">
-                {c.profiles?.display_name || "顧問"}
-              </div>
-              <div className="text-sm leading-relaxed">{c.body}</div>
-            </div>
-          ))
-        )}
-      </div>
+      {!latestDraft ? (
+        <p className="text-sm text-slate">上傳草稿後即可查看顧問回饋。</p>
+      ) : (
+        <AnnotatedDraft
+          key={latestDraft.id}
+          content={(latestDraft.content_json as any) || latestDraft.content || ""}
+          comments={commentsForDisplay}
+          canComment={false}
+        />
+      )}
     </div>
   );
 }

@@ -39,6 +39,16 @@ const config: Config = {
           DEFAULT: "#3F6B4E",
           tint: "rgba(63,107,78,0.11)",
         },
+        // Content-marking colors (student/advisor highlighter + comment
+        // anchors) — deliberately NOT part of the navy/red brand palette,
+        // since these mark user text rather than UI chrome.
+        highlight: {
+          DEFAULT: "rgba(255,214,10,0.35)", // yellow highlighter
+        },
+        "comment-anchor": {
+          DEFAULT: "rgba(221,14,32,0.12)", // ties visually to feedback = brand red, still a tint
+          active: "rgba(221,14,32,0.24)",
+        },
       },
       fontFamily: {
         display: ["var(--font-display)", "serif"],

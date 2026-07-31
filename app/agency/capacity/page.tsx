@@ -1,6 +1,8 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAgencyDashboardData } from "@/lib/agency-data";
 import { advisorStatus, utilizationPct } from "@/lib/capacity";
+import { updateCapacity } from "./actions";
 
 const STATUS_PILL: Record<string, string> = {
   available: "bg-good-tint text-good",
@@ -13,7 +15,17 @@ const BAR_COLOR: Record<string, string> = {
   overloaded: "bg-danger",
 };
 
-export default async function AgencyCapacityPage() {
+const ERROR_MESSAGES: Record<string, string> = {
+  capacity_failed: "無法更新承接上限，請稍後再試。",
+  capacity_invalid: "承接上限必須是大於 0 的數字。",
+};
+
+export default async function AgencyCapacityPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -39,10 +51,19 @@ export default async function AgencyCapacityPage() {
 
   return (
     <div>
+      <Link href="/agency" className="text-xs text-slate mb-3 inline-block">
+        ← 回到機構總覽
+      </Link>
       <h1 className="font-display text-2xl font-bold text-ink mb-1">顧問產能</h1>
       <p className="text-sm text-slate mb-6">
         依「可承接空間」排序 — 一眼看出誰還能接、誰已經滿載。
       </p>
+
+      {error && (
+        <div className="rounded border border-danger/30 bg-danger-tint text-danger text-sm px-4 py-3 mb-6">
+          {ERROR_MESSAGES[error] || "發生錯誤，請稍後再試。"}
+        </div>
+      )}
 
       {(topPicks.length > 0 || overloaded.length > 0) && (
         <div className="rounded-xl border border-good/20 bg-good-tint p-5 mb-6">
@@ -72,7 +93,12 @@ export default async function AgencyCapacityPage() {
             return (
               <div key={a.id} className="p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <div className="font-semibold text-sm">{a.display_name}</div>
+                  <Link
+                    href={`/agency/students?advisor=${a.id}`}
+                    className="font-semibold text-sm text-ink hover:text-brand hover:underline"
+                  >
+                    {a.display_name}
+                  </Link>
                   <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_PILL[s.status]}`}>
                     {s.label}
                   </span>
@@ -86,7 +112,7 @@ export default async function AgencyCapacityPage() {
                   </div>
                   <div className="text-xs font-semibold text-slate w-10 text-right">{pct}%</div>
                 </div>
-                <div className="text-xs text-slate">
+                <div className="text-xs text-slate mb-3">
                   {a.caseload} / {a.capacity} 位學生
                   {a.overdueCount > 0 && (
                     <span className="text-danger font-semibold ml-2">
@@ -94,14 +120,33 @@ export default async function AgencyCapacityPage() {
                     </span>
                   )}
                 </div>
+                <form
+                  action={updateCapacity.bind(null, a.id)}
+                  className="flex items-center gap-2"
+                >
+                  <label className="text-xs text-slate" htmlFor={`capacity-${a.id}`}>
+                    承接上限：
+                  </label>
+                  <input
+                    id={`capacity-${a.id}`}
+                    name="capacity"
+                    type="number"
+                    min={1}
+                    defaultValue={a.capacity}
+                    className="w-20 rounded border border-line px-2 py-1 text-xs"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded bg-ink px-3 py-1 text-xs font-semibold text-white"
+                  >
+                    儲存
+                  </button>
+                </form>
               </div>
             );
           })
         )}
       </div>
-      <p className="text-xs text-slate mt-3">
-        建議上限可依顧問經驗調整，目前預設為每位顧問 25 位學生（見 supabase/batch5_agency_patch.sql 的說明）。
-      </p>
     </div>
   );
 }

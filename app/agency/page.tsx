@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAgencyDashboardData } from "@/lib/agency-data";
 import { advisorStatus, utilizationPct } from "@/lib/capacity";
@@ -47,15 +48,22 @@ export default async function AgencyOverviewPage() {
       <p className="text-sm text-slate mb-6">{agency?.name || "（尚未命名機構）"} · 整體營運狀況一覽。</p>
 
       <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="rounded border border-line bg-surface shadow-card p-5">
+        <Link
+          href="/agency/capacity"
+          className="rounded border border-line bg-surface shadow-card p-5 hover:border-brand"
+        >
           <div className="text-xs font-semibold text-slate mb-2">顧問人數</div>
           <div className="font-display text-3xl font-bold">{advisors.length}</div>
-          <div className="text-xs text-slate mt-1">管理 {students.length} 位學生</div>
-        </div>
-        <div className="rounded border border-line bg-surface shadow-card p-5">
+          <div className="text-xs text-slate mt-1">管理 {students.length} 位學生 · 查看名單</div>
+        </Link>
+        <Link
+          href="/agency/students"
+          className="rounded border border-line bg-surface shadow-card p-5 hover:border-brand"
+        >
           <div className="text-xs font-semibold text-slate mb-2">學生人數</div>
           <div className="font-display text-3xl font-bold">{students.length}</div>
-        </div>
+          <div className="text-xs text-slate mt-1">查看名單</div>
+        </Link>
         <div className="rounded border border-line bg-surface shadow-card p-5">
           <div className="text-xs font-semibold text-slate mb-2">目前已逾期文書</div>
           <div className="font-display text-3xl font-bold text-danger">{totalOverdue}</div>
@@ -85,7 +93,12 @@ export default async function AgencyOverviewPage() {
             const s = advisorStatus(a.caseload, a.capacity, a.overdueCount);
             return (
               <div key={a.id} className="flex items-center justify-between p-4">
-                <div className="font-semibold text-sm">{a.display_name}</div>
+                <Link
+                  href={`/agency/students?advisor=${a.id}`}
+                  className="font-semibold text-sm text-ink hover:text-brand hover:underline"
+                >
+                  {a.display_name}
+                </Link>
                 <div className="text-xs text-slate">
                   {a.caseload} / {a.capacity} 位學生 · 使用率 {utilizationPct(a.caseload, a.capacity)}%
                 </div>

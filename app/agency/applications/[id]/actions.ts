@@ -18,7 +18,6 @@ export async function addComment(
   const range_from = rangeFromRaw ? Number(rangeFromRaw) : null;
   const range_to = rangeToRaw ? Number(rangeToRaw) : null;
 
-  // A real comment needs text; a standalone highlight doesn't.
   if (kind === "comment" && !body) return;
 
   const supabase = await createClient();
@@ -38,26 +37,9 @@ export async function addComment(
   });
 
   if (error) {
-    console.error("addComment failed:", error);
-    redirect(`/advisor/applications/${applicationId}?error=comment_failed`);
+    console.error("addComment (agency) failed:", error);
+    redirect(`/agency/applications/${applicationId}?error=comment_failed`);
   }
 
-  revalidatePath(`/advisor/applications/${applicationId}`);
-}
-
-export async function updateStage(applicationId: string, formData: FormData) {
-  const stage = formData.get("stage") as string;
-
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("applications")
-    .update({ stage })
-    .eq("id", applicationId);
-
-  if (error) {
-    console.error("updateStage failed:", error);
-    redirect(`/advisor/applications/${applicationId}?error=stage_failed`);
-  }
-
-  revalidatePath(`/advisor/applications/${applicationId}`);
+  revalidatePath(`/agency/applications/${applicationId}`);
 }

@@ -14,13 +14,9 @@ export function StageThread({
       {STAGE_ORDER.map((s, i) => {
         const done = i < currentIndex;
         const current = i === currentIndex;
+        const isLast = i === STAGE_ORDER.length - 1;
         return (
           <div key={s} className="flex items-center flex-1 last:flex-none">
-            {i > 0 && (
-              <div
-                className={`h-0.5 flex-1 ${i <= currentIndex ? "bg-brand" : "bg-line"}`}
-              />
-            )}
             <div className="flex flex-col items-center">
               <div
                 className={`w-3 h-3 rounded-full border-2 shrink-0 ${
@@ -42,6 +38,11 @@ export function StageThread({
                 </div>
               )}
             </div>
+            {!isLast && (
+              <div
+                className={`h-0.5 flex-1 ${i < currentIndex ? "bg-brand" : "bg-line"}`}
+              />
+            )}
           </div>
         );
       })}
