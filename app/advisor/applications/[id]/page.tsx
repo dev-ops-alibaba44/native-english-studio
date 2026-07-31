@@ -3,20 +3,13 @@ import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { STAGE_ORDER, STAGE_LABELS, type Stage } from "@/lib/stages";
 import { LiveDocument } from "@/components/editor/LiveDocument";
-import { SectionTabs } from "@/components/SectionTabs";
+import { SnapshotHistory } from "@/components/SnapshotHistory";
 import { saveSnapshot } from "@/app/actions/documents";
-import { addSection } from "@/app/actions/sections";
 import { updateStage } from "./actions";
-
-function wordCount(text: string): number {
-  return text.trim() ? text.trim().split(/\s+/).length : 0;
-}
 
 const ERROR_MESSAGES: Record<string, string> = {
   stage_failed: "無法更新階段，請稍後再試。",
   snapshot_failed: "無法儲存快照，請稍後再試。",
-  section_title_required: "請輸入段落名稱。",
-  section_failed: "無法新增段落，請稍後再試。",
 };
 
 export default async function AdvisorApplicationPage({
@@ -24,10 +17,10 @@ export default async function AdvisorApplicationPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; section?: string }>;
+  searchParams: Promise<{ error?: string }>;
 }) {
   const { id } = await params;
-  const { error, section: sectionId } = await searchParams;
+  const { error } = await searchParams;
   const supabase = await createClient();
 
   const { data: application } = await supabase
@@ -36,13 +29,7 @@ export default async function AdvisorApplicationPage({
     .eq("id", id)
     .single();
 
-  const { data: sections } = await supabase
-    .from("application_sections")
-    .select("id, title, prompt_text, word_limit")
-    .eq("application_id", id)
-    .order("created_at", { ascending: true });
-
-  const roomId = sectionId ? `application:${id}:section:${sectionId}` : `application:${id}`;
+  const roomId = `application:${id}`;
 
   const { data: snapshots } = await supabase
     .from("drafts")
@@ -57,7 +44,6 @@ export default async function AdvisorApplicationPage({
   const app = application as any;
   const returnPath = `/advisor/applications/${id}`;
   const saveSnapshotForThisApplication = saveSnapshot.bind(null, id, returnPath);
-  const addSectionForThisApplication = addSection.bind(null, id, returnPath);
   const updateStageForThisApplication = updateStage.bind(null, id);
 
   return (
@@ -104,36 +90,13 @@ export default async function AdvisorApplicationPage({
         </form>
       </div>
 
-      <SectionTabs
-        basePath={returnPath}
-        sections={sections || []}
-        activeSectionId={sectionId || null}
-        addSectionAction={addSectionForThisApplication}
-      />
-
       <div className="rounded border border-brand/20 bg-brand-tint text-xs text-ink px-4 py-2 mb-4">
         這是即時共同編輯文件 — 你、學生、以及機構管理者都可以同時在這裡撰寫與留言。
       </div>
 
       <LiveDocument key={roomId} roomId={roomId} onSaveSnapshot={saveSnapshotForThisApplication} />
 
-      {snapshots && snapshots.length > 0 && (
-        <details className="text-sm mt-8">
-          <summary className="cursor-pointer text-xs text-slate select-none">
-            查看歷史快照（共 {snapshots.length} 份）
-          </summary>
-          <div className="rounded border border-line bg-surface shadow-card divide-y divide-line mt-2">
-            {snapshots.map((s) => (
-              <div key={s.id} className="p-3 flex items-center justify-between">
-                <span className="text-sm font-semibold">第 {s.version} 份快照</span>
-                <span className="text-xs text-slate">
-                  {new Date(s.created_at).toLocaleString("zh-TW")} · {wordCount(s.content)} 字
-                </span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
+      {snapshots && <SnapshotHistory snapshots={snapshots} />}
     </div>
   );
 }

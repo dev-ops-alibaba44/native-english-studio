@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { type Stage } from "@/lib/stages";
-import { createApplication } from "./actions";
+import { createApplicationFor } from "@/app/actions/applications";
 
 const ERROR_MESSAGES: Record<string, string> = {
   missing_school_name: "請輸入學校名稱。",
@@ -85,7 +85,7 @@ export default async function ApplicationsPage({
 
       <div className="rounded border border-line bg-surface shadow-card p-5 max-w-md">
         <h3 className="font-display font-bold text-base mb-4">新增申請</h3>
-        <form action={createApplication} className="flex flex-col gap-3">
+        <form action={createApplicationFor.bind(null, user!.id, "/student/applications")} className="flex flex-col gap-3">
           <div>
             <label className="block text-xs font-medium text-slate mb-1">學校名稱</label>
             <input

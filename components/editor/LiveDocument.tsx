@@ -141,8 +141,15 @@ function CollaborativeEditor({
           >
             <span className="w-4 h-4 rounded-sm bg-highlight inline-block" />
           </ToolbarButton>
+          <ToolbarButton
+            label="留言"
+            active={false}
+            onClick={() => editor.chain().focus().addPendingComment().run()}
+          >
+            💬
+          </ToolbarButton>
           <span className="text-xs text-slate ml-2">
-            選取文字後可留言（右側會出現評論框）
+            選取文字後按下「💬」即可留言
           </span>
           {onSaveSnapshot && (
             <button
@@ -167,7 +174,11 @@ function CollaborativeEditor({
 
       <div>
         <h4 className="font-display font-bold text-sm mb-3">評論</h4>
-        <AnchoredThreads editor={editor} threads={threads} />
+        {/* Liveblocks' default thread UI already supports replying to a
+            comment and marking it resolved — no extra code needed for
+            those. We just filter out resolved threads so they disappear
+            from view, per how Google Docs behaves. */}
+        <AnchoredThreads editor={editor} threads={threads.filter((t) => !t.resolved)} />
       </div>
 
       <style jsx global>{`

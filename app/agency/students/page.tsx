@@ -2,13 +2,22 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { type Stage } from "@/lib/stages";
+import { createApplicationFor } from "@/app/actions/applications";
+
+const ERROR_MESSAGES: Record<string, string> = {
+  missing_school_name: "請輸入學校名稱。",
+  no_agency: "這位學生尚未加入任何機構。",
+  school_failed: "無法建立學校資料，請稍後再試。",
+  duplicate_school: "這位學生已經新增過這間學校的申請了。",
+  application_failed: "無法建立申請項目，請稍後再試。",
+};
 
 export default async function AgencyStudentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ advisor?: string }>;
+  searchParams: Promise<{ advisor?: string; error?: string; success?: string }>;
 }) {
-  const { advisor: advisorFilter } = await searchParams;
+  const { advisor: advisorFilter, error, success } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -62,11 +71,28 @@ export default async function AgencyStudentsPage({
         <p className="text-sm text-slate mb-6">機構所有學生，點選任一申請項目可查看詳細進度。</p>
       )}
 
+      {error && (
+        <div className="rounded border border-danger/30 bg-danger-tint text-danger text-sm px-4 py-3 mb-6">
+          {ERROR_MESSAGES[error] || "發生錯誤，請稍後再試。"}
+        </div>
+      )}
+      {success && (
+        <div className="rounded border border-good/30 bg-good-tint text-good text-sm px-4 py-3 mb-6">
+          新增成功！
+        </div>
+      )}
+
       <div className="flex flex-col gap-4">
         {!students || students.length === 0 ? (
           <p className="text-sm text-slate">目前還沒有學生。</p>
         ) : (
-          students.map((student: any) => (
+          students.map((student: any) => {
+            const addApplicationForThisStudent = createApplicationFor.bind(
+              null,
+              student.id,
+              "/agency/students"
+            );
+            return (
             <div key={student.id} className="rounded border border-line bg-surface shadow-card p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="font-display font-bold text-base">{student.display_name}</div>
@@ -77,7 +103,7 @@ export default async function AgencyStudentsPage({
               {(!student.applications || student.applications.length === 0) && (
                 <p className="text-sm text-slate">尚未新增任何申請項目。</p>
               )}
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 mb-3">
                 {student.applications?.map((app: any) => (
                   <Link
                     key={app.id}
@@ -94,8 +120,42 @@ export default async function AgencyStudentsPage({
                   </Link>
                 ))}
               </div>
+              <details>
+                <summary className="cursor-pointer text-xs text-brand underline select-none">
+                  + 新增學校
+                </summary>
+                <form
+                  action={addApplicationForThisStudent}
+                  className="mt-2 flex flex-wrap items-end gap-2"
+                >
+                  <input
+                    name="school_name"
+                    required
+                    placeholder="學校名稱"
+                    className="rounded border border-line px-3 py-1.5 text-sm outline-none focus:border-brand"
+                  />
+                  <input
+                    name="deadline"
+                    type="date"
+                    className="rounded border border-line px-3 py-1.5 text-sm outline-none focus:border-brand"
+                  />
+                  <input
+                    name="word_limit"
+                    type="number"
+                    placeholder="字數上限"
+                    className="w-28 rounded border border-line px-3 py-1.5 text-sm outline-none focus:border-brand"
+                  />
+                  <button
+                    type="submit"
+                    className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    新增
+                  </button>
+                </form>
+              </details>
             </div>
-          ))
+            );
+          })
         )}
       </div>
     </div>
