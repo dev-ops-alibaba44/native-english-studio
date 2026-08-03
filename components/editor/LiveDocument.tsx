@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   LiveblocksProvider,
   RoomProvider,
@@ -19,6 +20,17 @@ import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import "@liveblocks/react-ui/styles.css";
 import "@liveblocks/react-tiptap/styles.css";
+
+const AI_ERROR_MESSAGES: Record<string, string> = {
+  essay_empty: "文件目前是空的，請先撰寫內容再請求 AI 回饋。",
+  essay_too_short: "內容太短，請至少寫 30 個字再請求 AI 回饋。",
+  ai_not_configured: "AI 回饋功能尚未設定完成，請聯絡系統管理者。",
+  ai_request_failed: "AI 回饋請求失敗，請稍後再試。",
+  ai_empty_response: "AI 未能產生回饋，請稍後再試。",
+  comment_post_failed: "AI 回饋已產生，但留言失敗，請稍後再試。",
+  not_authorized: "沒有權限對此文件請求 AI 回饋。",
+  not_signed_in: "請重新登入後再試。",
+};
 
 function PresenceBar() {
   const others = useOthers();
@@ -80,11 +92,19 @@ function ToolbarButton({
 
 function CollaborativeEditor({
   onSaveSnapshot,
+  onRequestAIFeedback,
+  historySlot,
 }: {
   onSaveSnapshot?: (formData: FormData) => void | Promise<void>;
+  onRequestAIFeedback?: (
+    formData: FormData
+  ) => Promise<{ success: true } | { success: false; error: string }>;
+  historySlot?: React.ReactNode;
 }) {
   const liveblocksExtension = useLiveblocksExtension();
   const { threads } = useThreads();
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -109,7 +129,7 @@ function CollaborativeEditor({
   if (!editor) return null;
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
       <div>
         <PresenceBar />
         <div className="flex items-center gap-2 mb-2">
@@ -160,25 +180,61 @@ function CollaborativeEditor({
                 formData.set("content_json", JSON.stringify(editor.getJSON()));
                 await onSaveSnapshot(formData);
               }}
-              className="ml-auto rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
+              className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
             >
               封存目前快照
             </button>
           )}
+          {onRequestAIFeedback && (
+            <button
+              type="button"
+              disabled={aiLoading}
+              onClick={async () => {
+                setAiLoading(true);
+                setAiError(null);
+                const formData = new FormData();
+                formData.set("essay_text", editor.getText());
+                const result = await onRequestAIFeedback(formData);
+                if (!result.success) setAiError(result.error);
+                setAiLoading(false);
+              }}
+              className="ml-auto rounded bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+            >
+              {aiLoading ? "AI 分析中…" : "🤖 AI 回饋"}
+            </button>
+          )}
         </div>
+        {aiError && (
+          <div className="rounded border border-danger/30 bg-danger-tint text-danger text-xs px-3 py-2 mb-2">
+            {AI_ERROR_MESSAGES[aiError] || "發生錯誤，請稍後再試。"}
+          </div>
+        )}
         <div className="rounded border border-line bg-surface px-4 py-3 text-sm leading-relaxed focus-within:border-brand">
           <EditorContent editor={editor} />
         </div>
         <FloatingComposer editor={editor} />
+
+        {/* History lives in this same (left) column, not spanning the full
+            page width — this is what makes it exactly as wide as the editor
+            above it, rather than wider. */}
+        {historySlot}
       </div>
 
-      <div>
+      {/* This column is deliberately position:relative + overflow-y:auto
+          with a bounded height. AnchoredThreads positions each comment card
+          with an absolute "top" offset computed from the editor's content —
+          without a contained, scrollable box here, a card anchored near the
+          end of a long essay could render past this column's natural
+          height and visually spill onto whatever comes after it on the
+          page (the version history) — which is exactly what was happening
+          before. */}
+      <div className="relative max-h-[70vh] overflow-y-auto lg:sticky lg:top-4">
         <h4 className="font-display font-bold text-sm mb-3">評論</h4>
-        {/* Liveblocks' default thread UI already supports replying to a
-            comment and marking it resolved — no extra code needed for
-            those. We just filter out resolved threads so they disappear
-            from view, per how Google Docs behaves. */}
-        <AnchoredThreads editor={editor} threads={threads.filter((t) => !t.resolved)} />
+        {threads.filter((t) => !t.resolved).length === 0 ? (
+          <p className="text-xs text-slate">尚無評論。</p>
+        ) : (
+          <AnchoredThreads editor={editor} threads={threads.filter((t) => !t.resolved)} />
+        )}
       </div>
 
       <style jsx global>{`
@@ -205,15 +261,35 @@ function LoadingState() {
 export function LiveDocument({
   roomId,
   onSaveSnapshot,
+  onRequestAIFeedback,
+  historySlot,
 }: {
   roomId: string;
   onSaveSnapshot?: (formData: FormData) => void | Promise<void>;
+  onRequestAIFeedback?: (
+    formData: FormData
+  ) => Promise<{ success: true } | { success: false; error: string }>;
+  historySlot?: React.ReactNode;
 }) {
   return (
-    <LiveblocksProvider authEndpoint="/api/liveblocks-auth">
+    <LiveblocksProvider
+      authEndpoint="/api/liveblocks-auth"
+      resolveUsers={async ({ userIds }) => {
+        // Only the synthetic AI user needs static resolution here — real
+        // users' name/role/color already come through from the auth route
+        // (app/api/liveblocks-auth/route.ts) at session time.
+        return userIds.map((id) =>
+          id === "ai-advisor" ? { name: "AI 顧問", color: "#3F6B4E" } : undefined
+        );
+      }}
+    >
       <RoomProvider id={roomId} initialPresence={{}}>
         <ClientSideSuspense fallback={<LoadingState />}>
-          <CollaborativeEditor onSaveSnapshot={onSaveSnapshot} />
+          <CollaborativeEditor
+            onSaveSnapshot={onSaveSnapshot}
+            onRequestAIFeedback={onRequestAIFeedback}
+            historySlot={historySlot}
+          />
         </ClientSideSuspense>
       </RoomProvider>
     </LiveblocksProvider>

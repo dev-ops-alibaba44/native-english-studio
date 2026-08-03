@@ -5,6 +5,7 @@ import { STAGE_LABELS, type Stage } from "@/lib/stages";
 import { LiveDocument } from "@/components/editor/LiveDocument";
 import { SnapshotHistory } from "@/components/SnapshotHistory";
 import { saveSnapshot } from "@/app/actions/documents";
+import { generateEssayFeedback } from "@/app/actions/ai-feedback";
 
 const ERROR_MESSAGES: Record<string, string> = {
   snapshot_failed: "無法儲存快照，請稍後再試。",
@@ -15,10 +16,10 @@ export default async function ApplicationDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; snapshot?: string }>;
 }) {
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, snapshot } = await searchParams;
   const supabase = await createClient();
 
   const { data: application } = await supabase
@@ -42,6 +43,7 @@ export default async function ApplicationDetailPage({
   const app = application as any;
   const returnPath = `/student/applications/${id}`;
   const saveSnapshotForThisApplication = saveSnapshot.bind(null, id, returnPath);
+  const requestAIFeedbackForThisApplication = generateEssayFeedback.bind(null, id, roomId);
 
   return (
     <div>
@@ -74,9 +76,21 @@ export default async function ApplicationDetailPage({
         這是即時共同編輯文件 — 你、顧問、以及機構管理者都可以同時在這裡撰寫與留言。
       </div>
 
-      <LiveDocument key={roomId} roomId={roomId} onSaveSnapshot={saveSnapshotForThisApplication} />
-
-      {snapshots && <SnapshotHistory snapshots={snapshots} />}
+      <LiveDocument
+        key={roomId}
+        roomId={roomId}
+        onSaveSnapshot={saveSnapshotForThisApplication}
+        onRequestAIFeedback={requestAIFeedbackForThisApplication}
+        historySlot={
+          snapshots ? (
+            <SnapshotHistory
+              snapshots={snapshots}
+              basePath={returnPath}
+              activeSnapshotId={snapshot || null}
+            />
+          ) : undefined
+        }
+      />
     </div>
   );
 }

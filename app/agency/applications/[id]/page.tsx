@@ -5,6 +5,7 @@ import { STAGE_ORDER, STAGE_LABELS, type Stage } from "@/lib/stages";
 import { LiveDocument } from "@/components/editor/LiveDocument";
 import { SnapshotHistory } from "@/components/SnapshotHistory";
 import { saveSnapshot } from "@/app/actions/documents";
+import { generateEssayFeedback } from "@/app/actions/ai-feedback";
 import { updateStage } from "./actions";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -17,10 +18,10 @@ export default async function AgencyApplicationPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; snapshot?: string }>;
 }) {
   const { id } = await params;
-  const { error } = await searchParams;
+  const { error, snapshot } = await searchParams;
   const supabase = await createClient();
 
   const { data: application } = await supabase
@@ -44,6 +45,7 @@ export default async function AgencyApplicationPage({
   const app = application as any;
   const returnPath = `/agency/applications/${id}`;
   const saveSnapshotForThisApplication = saveSnapshot.bind(null, id, returnPath);
+  const requestAIFeedbackForThisApplication = generateEssayFeedback.bind(null, id, roomId);
   const updateStageForThisApplication = updateStage.bind(null, id);
 
   return (
@@ -94,9 +96,21 @@ export default async function AgencyApplicationPage({
         這是即時共同編輯文件 — 學生、顧問、以及你都可以同時在這裡撰寫與留言。
       </div>
 
-      <LiveDocument key={roomId} roomId={roomId} onSaveSnapshot={saveSnapshotForThisApplication} />
-
-      {snapshots && <SnapshotHistory snapshots={snapshots} />}
+      <LiveDocument
+        key={roomId}
+        roomId={roomId}
+        onSaveSnapshot={saveSnapshotForThisApplication}
+        onRequestAIFeedback={requestAIFeedbackForThisApplication}
+        historySlot={
+          snapshots ? (
+            <SnapshotHistory
+              snapshots={snapshots}
+              basePath={returnPath}
+              activeSnapshotId={snapshot || null}
+            />
+          ) : undefined
+        }
+      />
     </div>
   );
 }

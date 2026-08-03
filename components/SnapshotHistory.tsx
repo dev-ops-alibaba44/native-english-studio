@@ -1,3 +1,5 @@
+import { SnapshotPicker } from "./SnapshotPicker";
+
 function wordCount(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
@@ -9,34 +11,48 @@ export interface SnapshotInfo {
   created_at: string;
 }
 
-export function SnapshotHistory({ snapshots }: { snapshots: SnapshotInfo[] }) {
+export function SnapshotHistory({
+  snapshots,
+  basePath,
+  activeSnapshotId,
+}: {
+  snapshots: SnapshotInfo[];
+  basePath: string;
+  activeSnapshotId: string | null;
+}) {
   if (!snapshots || snapshots.length === 0) return null;
 
+  const active = activeSnapshotId
+    ? snapshots.find((s) => s.id === activeSnapshotId) || null
+    : null;
+
+  const options = snapshots.map((s) => ({
+    id: s.id,
+    label: `第 ${s.version} 份快照 — ${new Date(s.created_at).toLocaleString("zh-TW", {
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })}（${wordCount(s.content)} 字）`,
+  }));
+
   return (
-    <details className="text-sm mt-8">
-      <summary className="cursor-pointer text-xs text-slate select-none">
-        查看歷史快照（共 {snapshots.length} 份）
-      </summary>
-      <div className="rounded border border-line bg-surface shadow-card divide-y divide-line mt-2">
-        {snapshots.map((s) => (
-          <details key={s.id} className="group">
-            <summary className="p-3 flex items-center justify-between cursor-pointer list-none hover:bg-brand-tint">
-              <span className="text-sm font-semibold">
-                第 {s.version} 份快照
-                <span className="text-xs font-normal text-slate ml-2 group-open:hidden">
-                  （點選查看內容）
-                </span>
-              </span>
-              <span className="text-xs text-slate">
-                {new Date(s.created_at).toLocaleString("zh-TW")} · {wordCount(s.content)} 字
-              </span>
-            </summary>
-            <div className="px-4 pb-4 text-sm leading-relaxed whitespace-pre-wrap border-t border-line pt-3">
-              {s.content || "（空白）"}
-            </div>
-          </details>
-        ))}
+    <div className="mt-8">
+      <h4 className="font-display font-bold text-sm mb-2">版本歷史</h4>
+      <SnapshotPicker basePath={basePath} options={options} activeId={activeSnapshotId} />
+
+      <div className="mt-3 rounded border border-line bg-surface shadow-card p-4 min-h-[6rem]">
+        {active ? (
+          <div className="text-sm leading-relaxed whitespace-pre-wrap">
+            {active.content || "（空白）"}
+          </div>
+        ) : (
+          <p className="text-xs text-slate">從上方選單選擇一個版本，即可在這裡檢視內容。</p>
+        )}
       </div>
-    </details>
+      <p className="text-xs text-slate mt-2">
+        這些舊版本會保留下來，以防不小心遺失內容 — 請在上方的主要編輯區塊進行實際編輯。
+      </p>
+    </div>
   );
 }
