@@ -20,7 +20,16 @@ export function SnapshotPicker({
         const value = e.target.value;
         router.push(value ? `${basePath}?snapshot=${value}` : basePath);
       }}
-      className="rounded border border-line px-3 py-2 text-sm outline-none focus:border-brand bg-white"
+      className="appearance-none rounded border border-line pl-3 pr-9 py-2 text-sm outline-none focus:border-brand bg-white bg-no-repeat"
+      style={{
+        backgroundImage:
+          "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'%3E%3Cpath d='M1 1.5L6 6.5L11 1.5' stroke='%23172983' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+        // Positioned the same 0.75rem (12px) from the right edge as the
+        // text sits from the left edge (pl-3 = 0.75rem) — this is what
+        // keeps it visually centered/symmetric in the box rather than
+        // hugging the far right like the native browser arrow did.
+        backgroundPosition: "right 0.75rem center",
+      }}
     >
       <option value="">查看版本歷史</option>
       {options.map((o) => (

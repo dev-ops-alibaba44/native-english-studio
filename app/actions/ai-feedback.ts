@@ -55,17 +55,55 @@ export async function generateEssayFeedback(
   let feedbackText: string;
   let inputTokens: number | null = null;
   let outputTokens: number | null = null;
+  let cacheCreationTokens: number | null = null;
+  let cacheReadTokens: number | null = null;
 
   try {
     const message = await getAnthropic().messages.create({
       model: AI_FEEDBACK_MODEL,
       max_tokens: 900,
-      system:
-        "You are an experienced, encouraging US college application essay advisor. Give " +
-        "specific, actionable feedback on structure, voice, specificity, clichés, and grammar. " +
-        "Keep it concise (under 300 words), organized as a few short paragraphs, and always " +
-        "note at least one genuine strength before suggestions. Do not rewrite the essay for " +
-        "the student — describe what to change, not the replacement text.",
+      // Prompt caching: the system prompt below is identical on every
+      // request (only the essay text in the user message changes), so
+      // marking it cacheable means repeat calls are charged a much
+      // cheaper "cache read" rate for these tokens instead of full price
+      // every time. Note: this only meaningfully pays off once the cached
+      // block is reasonably long (roughly 1,000+ tokens for Haiku-class
+      // models) — that's part of why the rubric below is fuller than the
+      // bare minimum; a one-sentence system prompt wouldn't hit that
+      // threshold and caching it would save close to nothing.
+      //
+      // (The reference snippet used a top-level `cache_control` param on
+      // messages.create() — that's not the current API shape. The real
+      // mechanism is a `cache_control` field on the specific content
+      // block you want cached, as used below.)
+      system: [
+        {
+          type: "text",
+          text:
+            "You are an experienced, encouraging US college application essay advisor working " +
+            "for a Taiwan-based consultancy. Students you're reviewing are applying to English-" +
+            "medium universities and are not native English speakers, so be attentive to both " +
+            "substance and language issues without being discouraging about the latter.\n\n" +
+            "Evaluate the essay across these dimensions:\n" +
+            "1. Structure — does it have a clear arc (hook, development, reflection/growth, " +
+            "closing), or does it wander?\n" +
+            "2. Voice and specificity — is it full of generic statements ('I learned the value " +
+            "of hard work') or grounded in concrete, personal, sensory detail only this student " +
+            "could have written?\n" +
+            "3. Clichés — flag overused college-essay tropes (the big game, the mission trip " +
+            "epiphany, generic 'diversity' statements) if present, gently.\n" +
+            "4. Grammar and clarity — note recurring patterns of error (not just one-off typos), " +
+            "especially ones common for the student's likely first-language background, without " +
+            "turning this into a line-by-line copyedit.\n" +
+            "5. What the essay reveals about the applicant as a person, and whether that comes " +
+            "through clearly to an admissions reader who has never met them.\n\n" +
+            "Output format: a few short paragraphs, under 300 words total. Always open by naming " +
+            "at least one genuine, specific strength before any suggestions. Do not rewrite the " +
+            "essay for the student — describe what to change, not the replacement text. Do not " +
+            "use a numbered or bulleted list in your output; write in prose.",
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages: [
         {
           role: "user",
@@ -80,6 +118,8 @@ export async function generateEssayFeedback(
       .join("\n\n");
     inputTokens = message.usage?.input_tokens ?? null;
     outputTokens = message.usage?.output_tokens ?? null;
+    cacheCreationTokens = (message.usage as any)?.cache_creation_input_tokens ?? null;
+    cacheReadTokens = (message.usage as any)?.cache_read_input_tokens ?? null;
 
     if (!feedbackText.trim()) {
       return { success: false, error: "ai_empty_response" };
@@ -95,7 +135,7 @@ export async function generateEssayFeedback(
       data: {
         comment: {
           userId: AI_FEEDBACK_USER_ID,
-          body: toCommentBody(`🤖 AI 回饋\n\n${feedbackText}`),
+          body: toCommentBody(feedbackText),
         },
       },
     });
@@ -114,6 +154,8 @@ export async function generateEssayFeedback(
       model: AI_FEEDBACK_MODEL,
       input_tokens: inputTokens,
       output_tokens: outputTokens,
+      cache_creation_tokens: cacheCreationTokens,
+      cache_read_tokens: cacheReadTokens,
     });
   } catch (err) {
     console.error("generateEssayFeedback: failed to log usage", err);

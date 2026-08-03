@@ -101,6 +101,7 @@ export default async function AgencyApplicationPage({
         roomId={roomId}
         onSaveSnapshot={saveSnapshotForThisApplication}
         onRequestAIFeedback={requestAIFeedbackForThisApplication}
+        initialLastSavedAt={snapshots?.[0]?.created_at || null}
         historySlot={
           snapshots ? (
             <SnapshotHistory

@@ -25,6 +25,7 @@
     "@tiptap/extension-highlight": "^2.11.5",
     "@liveblocks/client": "^2.15.2",
     "@liveblocks/react": "^2.15.2",
+    "@liveblocks/react-ui": "^2.15.2",
     "@liveblocks/react-tiptap": "^2.15.2",
     "@liveblocks/node": "^2.15.2",
     "@anthropic-ai/sdk": "^0.32.1"

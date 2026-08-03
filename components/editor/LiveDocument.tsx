@@ -9,17 +9,20 @@ import {
   useSelf,
 } from "@liveblocks/react";
 import { useThreads } from "@liveblocks/react/suspense";
-import {
-  useLiveblocksExtension,
-  FloatingComposer,
-  AnchoredThreads,
-} from "@liveblocks/react-tiptap";
+import { useLiveblocksExtension, FloatingComposer } from "@liveblocks/react-tiptap";
+import { Thread } from "@liveblocks/react-ui";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
 import "@liveblocks/react-ui/styles.css";
 import "@liveblocks/react-tiptap/styles.css";
+
+// Duplicated (not imported) from lib/liveblocks-server.ts on purpose —
+// that file imports @liveblocks/node, a server-only package that must
+// never end up in the client bundle. This is just a plain string constant,
+// safe and simple to keep in sync manually across the two files.
+const AI_FEEDBACK_USER_ID = "ai-advisor";
 
 const AI_ERROR_MESSAGES: Record<string, string> = {
   essay_empty: "文件目前是空的，請先撰寫內容再請求 AI 回饋。",
@@ -94,17 +97,22 @@ function CollaborativeEditor({
   onSaveSnapshot,
   onRequestAIFeedback,
   historySlot,
+  initialLastSavedAt,
 }: {
   onSaveSnapshot?: (formData: FormData) => void | Promise<void>;
   onRequestAIFeedback?: (
     formData: FormData
   ) => Promise<{ success: true } | { success: false; error: string }>;
   historySlot?: React.ReactNode;
+  initialLastSavedAt?: string | null;
 }) {
   const liveblocksExtension = useLiveblocksExtension();
   const { threads } = useThreads();
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(
+    initialLastSavedAt ? new Date(initialLastSavedAt) : null
+  );
 
   const editor = useEditor({
     extensions: [
@@ -127,6 +135,14 @@ function CollaborativeEditor({
   });
 
   if (!editor) return null;
+
+  const unresolvedThreads = threads.filter((t) => !t.resolved);
+  const aiThreads = unresolvedThreads.filter(
+    (t) => t.comments[0]?.userId === AI_FEEDBACK_USER_ID
+  );
+  const humanThreads = unresolvedThreads.filter(
+    (t) => t.comments[0]?.userId !== AI_FEEDBACK_USER_ID
+  );
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
@@ -168,9 +184,12 @@ function CollaborativeEditor({
           >
             💬
           </ToolbarButton>
-          <span className="text-xs text-slate ml-2">
-            選取文字後按下「💬」即可留言
-          </span>
+          {lastSavedAt && (
+            <span className="text-xs text-slate ml-1">
+              最後儲存於{" "}
+              {lastSavedAt.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
           {onSaveSnapshot && (
             <button
               type="button"
@@ -179,10 +198,11 @@ function CollaborativeEditor({
                 formData.set("content", editor.getText());
                 formData.set("content_json", JSON.stringify(editor.getJSON()));
                 await onSaveSnapshot(formData);
+                setLastSavedAt(new Date());
               }}
-              className="rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
+              className="ml-auto rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
             >
-              封存目前快照
+              💾 儲存版本
             </button>
           )}
           {onRequestAIFeedback && (
@@ -198,12 +218,13 @@ function CollaborativeEditor({
                 if (!result.success) setAiError(result.error);
                 setAiLoading(false);
               }}
-              className="ml-auto rounded bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+              className="rounded bg-brand px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
             >
               {aiLoading ? "AI 分析中…" : "🤖 AI 回饋"}
             </button>
           )}
         </div>
+        <p className="text-xs text-slate mb-2">選取文字後按下「💬」即可留言</p>
         {aiError && (
           <div className="rounded border border-danger/30 bg-danger-tint text-danger text-xs px-3 py-2 mb-2">
             {AI_ERROR_MESSAGES[aiError] || "發生錯誤，請稍後再試。"}
@@ -220,21 +241,46 @@ function CollaborativeEditor({
         {historySlot}
       </div>
 
-      {/* This column is deliberately position:relative + overflow-y:auto
-          with a bounded height. AnchoredThreads positions each comment card
-          with an absolute "top" offset computed from the editor's content —
-          without a contained, scrollable box here, a card anchored near the
-          end of a long essay could render past this column's natural
-          height and visually spill onto whatever comes after it on the
-          page (the version history) — which is exactly what was happening
-          before. */}
-      <div className="relative max-h-[70vh] overflow-y-auto lg:sticky lg:top-4">
-        <h4 className="font-display font-bold text-sm mb-3">評論</h4>
-        {threads.filter((t) => !t.resolved).length === 0 ? (
-          <p className="text-xs text-slate">尚無評論。</p>
-        ) : (
-          <AnchoredThreads editor={editor} threads={threads.filter((t) => !t.resolved)} />
-        )}
+      {/* This column is position:relative + overflow-y:auto with a bounded
+          height so a long list of comments scrolls internally rather than
+          growing the page indefinitely. Threads render as plain stacked
+          cards (Liveblocks' <Thread>, not the position-computed
+          AnchoredThreads) — no absolute positioning math means no
+          overlapping/clipping/mistimed-first-render, which is what was
+          going wrong before. AI feedback gets its own visually distinct
+          section below the human comments, per instruction — it's a
+          general comment (not anchored to a specific sentence), so mixing
+          it into the anchored-style UI never made sense anyway. */}
+      <div className="relative max-h-[70vh] overflow-y-auto lg:sticky lg:top-4 flex flex-col gap-5">
+        <div>
+          <h4 className="font-display font-bold text-sm mb-3">評論</h4>
+          {humanThreads.length === 0 ? (
+            <p className="text-xs text-slate">尚無評論。</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {humanThreads.map((thread) => (
+                <div key={thread.id} className="rounded border border-line bg-surface overflow-hidden">
+                  <Thread thread={thread} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded border border-brand/30 bg-brand-tint p-3">
+          <h4 className="font-display font-bold text-sm mb-3">🤖 AI 回饋</h4>
+          {aiThreads.length === 0 ? (
+            <p className="text-xs text-slate">尚無 AI 回饋。</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {aiThreads.map((thread) => (
+                <div key={thread.id} className="rounded border border-brand/20 bg-white overflow-hidden">
+                  <Thread thread={thread} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <style jsx global>{`
@@ -248,6 +294,25 @@ function CollaborativeEditor({
         .ProseMirror mark {
           background-color: rgba(255, 214, 10, 0.35);
           border-radius: 2px;
+        }
+        /* Liveblocks' own comment-anchor highlight (applied automatically
+           by addPendingComment()) — recolored to a distinct orange so it
+           doesn't read as the same thing as the yellow highlighter above.
+           Liveblocks themes via --lb-* CSS variables; --lb-accent drives
+           their default highlight/accent color, so this is the primary
+           lever. Backup class-name overrides included in case the
+           variable alone doesn't cover it — if the highlight still looks
+           unchanged after this, the actual class name may differ from
+           these guesses and is worth a quick check against
+           https://liveblocks.io/docs/api-reference/liveblocks-react-tiptap
+           for the current comment-mark selector. */
+        .lb-root {
+          --lb-accent: 30 100% 50%;
+        }
+        .lb-tiptap-comment-highlight,
+        [data-lb-comment-highlight],
+        [data-highlight="true"] {
+          background-color: rgba(255, 140, 0, 0.32) !important;
         }
       `}</style>
     </div>
@@ -263,6 +328,7 @@ export function LiveDocument({
   onSaveSnapshot,
   onRequestAIFeedback,
   historySlot,
+  initialLastSavedAt,
 }: {
   roomId: string;
   onSaveSnapshot?: (formData: FormData) => void | Promise<void>;
@@ -270,6 +336,7 @@ export function LiveDocument({
     formData: FormData
   ) => Promise<{ success: true } | { success: false; error: string }>;
   historySlot?: React.ReactNode;
+  initialLastSavedAt?: string | null;
 }) {
   return (
     <LiveblocksProvider
@@ -289,6 +356,7 @@ export function LiveDocument({
             onSaveSnapshot={onSaveSnapshot}
             onRequestAIFeedback={onRequestAIFeedback}
             historySlot={historySlot}
+            initialLastSavedAt={initialLastSavedAt}
           />
         </ClientSideSuspense>
       </RoomProvider>
