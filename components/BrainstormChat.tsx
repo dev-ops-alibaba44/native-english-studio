@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { brainstormReply, type BrainstormMessage } from "@/app/actions/brainstorm";
+import { brainstormReply, archiveBrainstormSession, type BrainstormMessage } from "@/app/actions/brainstorm";
 
 const ERROR_MESSAGES: Record<string, string> = {
   empty_message: "請先輸入內容。",
@@ -9,19 +9,32 @@ const ERROR_MESSAGES: Record<string, string> = {
   ai_request_failed: "AI 請求失敗，請稍後再試。",
   ai_empty_response: "AI 未能產生回覆，請稍後再試。",
   not_signed_in: "請重新登入後再試。",
+  daily_limit_reached: "今日 AI 腦力激盪次數已達上限，請明天再繼續，或直接把目前想法儲存下來。",
 };
 
-export function BrainstormChat() {
+export function BrainstormChat({
+  studentId,
+  archiveLabel = "封存這段對話",
+}: {
+  // Whose record an archived session should be saved under. Always the
+  // signed-in user for students; advisors/agency admins pass in whichever
+  // student they're helping (see prompts pages) so the archive is filed
+  // under the right person and visible to that student's other advisors.
+  studentId: string;
+  archiveLabel?: string;
+}) {
   const [messages, setMessages] = useState<BrainstormMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [archiveState, setArchiveState] = useState<"idle" | "saving" | "saved">("idle");
 
   async function send() {
     const text = input.trim();
     if (!text || loading) return;
     setError(null);
     setLoading(true);
+    setArchiveState("idle");
     const nextMessages: BrainstormMessage[] = [...messages, { role: "user", content: text }];
     setMessages(nextMessages);
     setInput("");
@@ -34,6 +47,14 @@ export function BrainstormChat() {
     }
     setMessages([...nextMessages, { role: "assistant", content: result.reply }]);
     setLoading(false);
+  }
+
+  async function handleArchive() {
+    if (messages.length === 0) return;
+    setArchiveState("saving");
+    const result = await archiveBrainstormSession(studentId, messages);
+    setArchiveState(result.success ? "saved" : "idle");
+    if (!result.success) setError(result.error);
   }
 
   return (
@@ -95,9 +116,24 @@ export function BrainstormChat() {
           送出
         </button>
       </div>
-      <p className="text-[11px] text-slate mt-2">
-        這個對話不會被儲存 — 離開頁面或重新整理後就會消失，適合快速理清思路，正式寫作請到「我的申請」。
-      </p>
+
+      <div className="flex items-center gap-3 mt-3">
+        <button
+          type="button"
+          onClick={handleArchive}
+          disabled={messages.length === 0 || archiveState === "saving"}
+          className="rounded border border-line px-3 py-1.5 text-xs font-semibold text-ink disabled:opacity-50"
+        >
+          {archiveState === "saving" ? "封存中…" : `📄 ${archiveLabel}`}
+        </button>
+        {archiveState === "saved" && (
+          <span className="text-xs text-good">已封存！其他顧問與機構管理者都能在下方查看。</span>
+        )}
+        <p className="text-[11px] text-slate">
+          即時對話本身不會被儲存 — 離開頁面或重新整理後會消失；按下「封存」可把目前這段對話存成一份紀錄。
+          please go to "My Application" for official writing. // 正式寫作請到「我的申請」。
+        </p>
+      </div>
     </div>
   );
 }

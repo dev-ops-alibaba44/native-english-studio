@@ -2,6 +2,43 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🩹 Batch 9.9 — brainstorming tool: saved answers, archived sessions, daily AI limit
+
+### (1) Three more starter questions + a saved, timestamped answer box under each
+`發想與大綱` now has 6 starter questions (added: 你遇過最大的挑戰或挫折是什麼、有沒有一個人對你的想法有很大
+的影響、有什麼問題是你一直很好奇的). Each one now has a small textarea below it — write, hit 💾 儲存,
+get a "上次儲存於" timestamp, same pattern as version history elsewhere in the app. New table:
+`brainstorm_answers` (one row per student per question, upserted on save).
+
+### (2) AI conversations are now archived as static records, visible to everyone at the agency
+A "📄 封存這段對話" button turns the current live chat into a permanent, read-only transcript — this is
+the **only** way a conversation is ever saved. New table: `brainstorm_sessions`. Below the live chat, a
+dropdown ("過去封存的對話") lists every archived session; picking one just displays already-fetched
+text — no AI call, no re-running anything. On the advisor and agency portals, `/advisor/prompts` and
+`/agency/prompts` now start with a student picker; once you pick a student you get a shared live chat
+(archives under that student's name), their saved question answers (read-only), and their archived
+session history — all agency-wide per Batch 9.8, so any advisor or agency admin can see any student's
+brainstorming record, not just their primary advisor.
+
+Also fixed along the way: the AI was outputting literal `**bold**` asterisks instead of real formatting
+(visible in your screenshots) — told it explicitly not to use Markdown, since the chat renders as plain
+text.
+
+### (3) Daily limit on AI brainstorming calls
+Added a cap: 30 AI replies per person per day (tracked in a new lightweight `brainstorm_usage_log`
+table) — roughly 5–6 genuine back-and-forth conversations, generous for real use but no longer
+unbounded. Also trimmed the per-call context window from 12 messages to 8, and `max_tokens` from 500 to
+400, to keep each individual call tighter. For reference on where your 5,365 in / 2,326 out came from:
+each turn in a conversation necessarily resends the growing history so far (that's how the AI stays
+coherent across a conversation, not a bug) — the real lever for "resources" was always going to be
+capping *how many* turns/sessions happen, which is what this does. Worth knowing: this limit doesn't
+extend to essay feedback (`🤖 AI 回饋` on an application) — that's uncapped. Say the word if you want
+the same kind of daily cap there too.
+
+### Files to run
+New SQL patch: `supabase/batch9_9_brainstorm_persistence.sql` — creates `brainstorm_answers`,
+`brainstorm_sessions`, `brainstorm_usage_log` with RLS. Safe to run on your existing database.
+
 ## 🩹 Batch 9.8 — agency-wide advisor access, brainstorming tool, financial model v2 additions
 
 ### (4) Every advisor now sees every student at their agency

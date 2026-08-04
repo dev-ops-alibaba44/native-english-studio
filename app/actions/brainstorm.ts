@@ -8,11 +8,32 @@ export interface BrainstormMessage {
   content: string;
 }
 
-// Not tied to any specific application/draft — this is a lightweight,
-// standalone ideation tool (paste an essay prompt, think out loud with the
-// AI, no saving). Any signed-in student/advisor/agency_admin can use it;
-// there's no per-record RLS check needed the way essay feedback needs one,
-// since nothing here reads or writes another user's data.
+// Resource cap (Dan's request 3): a generous but real daily ceiling on AI
+// brainstorming calls per person, so a runaway/looping session (or several
+// long ones in a day) can't quietly rack up cost. 30 calls/day is roughly
+// 5-6 genuine back-and-forth conversations — plenty for real use, but not
+// unbounded. Counted via brainstorm_usage_log, one row per successful call.
+const DAILY_BRAINSTORM_LIMIT = 30;
+// Rolling context window (in messages, so 4 user+AI turns) sent to the
+// model each call — brainstorming doesn't need unlimited history, and
+// this keeps each individual call's input tokens bounded regardless of
+// how long a single conversation runs.
+const HISTORY_WINDOW = 8;
+
+async function checkAndLogQuota(userId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const since = new Date();
+  since.setHours(0, 0, 0, 0);
+  const { count } = await supabase
+    .from("brainstorm_usage_log")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", since.toISOString());
+  if ((count ?? 0) >= DAILY_BRAINSTORM_LIMIT) return false;
+  await supabase.from("brainstorm_usage_log").insert({ user_id: userId });
+  return true;
+}
+
 export async function brainstormReply(
   history: BrainstormMessage[],
   newMessage: string
@@ -27,15 +48,15 @@ export async function brainstormReply(
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
 
-  // Cap history sent to the model — this is a brainstorming aid, not a
-  // long-running document, so a rolling window keeps token cost bounded
-  // even if someone leaves a tab chatting for a while.
-  const recentHistory = history.slice(-12);
+  const withinQuota = await checkAndLogQuota(user.id);
+  if (!withinQuota) return { success: false, error: "daily_limit_reached" };
+
+  const recentHistory = history.slice(-HISTORY_WINDOW);
 
   try {
     const message = await getAnthropic().messages.create({
       model: AI_FEEDBACK_MODEL,
-      max_tokens: 500,
+      max_tokens: 400,
       system: [
         {
           type: "text",
@@ -51,7 +72,8 @@ export async function brainstormReply(
             "like a cliché, gently, and ask a question that pushes toward something more specific and " +
             "personal to them. Keep responses short — a few sentences and one or two questions, not an " +
             "essay of your own. Never write example sentences or paragraphs the student could paste in " +
-            "directly.\n\n" +
+            "directly. Do not use Markdown formatting (no **bold**, no bullet dashes) — the response " +
+            "renders as plain text, so write in plain prose and simple line breaks only.\n\n" +
             "IMPORTANT: Write your responses in Traditional Chinese (繁體中文), even though the essay " +
             "prompt and the student's own notes may be in English. It's fine to quote a short English " +
             "phrase from what they wrote, but your questions and comments are always in Chinese.",
@@ -75,4 +97,70 @@ export async function brainstormReply(
     console.error("brainstormReply: Anthropic API call failed", err);
     return { success: false, error: "ai_request_failed" };
   }
+}
+
+// ---------------------------------------------------------------------
+// Starter-question answers (small textarea under each prompt)
+// ---------------------------------------------------------------------
+export async function saveBrainstormAnswer(
+  questionKey: string,
+  answerText: string
+): Promise<{ success: true; savedAt: string } | { success: false; error: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "not_signed_in" };
+
+  const now = new Date().toISOString();
+  const { error } = await supabase.from("brainstorm_answers").upsert(
+    {
+      student_id: user.id,
+      question_key: questionKey,
+      answer_text: answerText,
+      updated_at: now,
+    },
+    { onConflict: "student_id,question_key" }
+  );
+
+  if (error) {
+    console.error("saveBrainstormAnswer failed:", error);
+    return { success: false, error: "save_failed" };
+  }
+  return { success: true, savedAt: now };
+}
+
+// ---------------------------------------------------------------------
+// Archive the current live conversation as a static, read-only record —
+// this is the ONLY way a conversation is ever persisted. Viewing it later
+// (by anyone) just reads this row; it never re-runs the AI or re-sends
+// the transcript anywhere.
+// ---------------------------------------------------------------------
+export async function archiveBrainstormSession(
+  studentId: string,
+  messages: BrainstormMessage[]
+): Promise<{ success: true } | { success: false; error: string }> {
+  if (messages.length === 0) return { success: false, error: "empty_session" };
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { success: false, error: "not_signed_in" };
+
+  const transcript = messages
+    .map((m) => `${m.role === "user" ? "【學生/使用者】" : "【AI】"}\n${m.content}`)
+    .join("\n\n---\n\n");
+
+  const { error } = await supabase.from("brainstorm_sessions").insert({
+    student_id: studentId,
+    author_id: user.id,
+    transcript,
+  });
+
+  if (error) {
+    console.error("archiveBrainstormSession failed:", error);
+    return { success: false, error: "archive_failed" };
+  }
+  return { success: true };
 }
