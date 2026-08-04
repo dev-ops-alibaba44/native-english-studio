@@ -113,6 +113,10 @@ function CollaborativeEditor({
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(
     initialLastSavedAt ? new Date(initialLastSavedAt) : null
   );
+  // Which thread card should be visually "pinged" in the sidebar right now
+  // — set when the reader clicks a highlighted/commented word in the essay
+  // itself, so they can see which comment that highlight belongs to.
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -132,6 +136,34 @@ function CollaborativeEditor({
       Highlight.configure({ multicolor: false }),
     ],
     immediatelyRender: false,
+    // Detects clicks on a comment-anchored word in the essay and jumps the
+    // matching thread card into view in the sidebar (scroll + a brief
+    // highlight ring), independent of which UI renders the thread list.
+    // This does NOT use Liveblocks' AnchoredThreads/FloatingThreads —
+    // those position every thread by continuous pixel-math against the
+    // editor's exact layout, which is what caused the comments-not-
+    // showing/overlapping/clipping bugs described in HANDOFF.md. This is
+    // just a one-off DOM lookup + scrollIntoView on click, so it can't
+    // silently drift out of alignment the way pixel-tracking could.
+    editorProps: {
+      handleClick(view, pos) {
+        const marks = view.state.doc.resolve(pos).marks();
+        const commentMark = marks.find((m) => m.type.name === "liveblocksCommentMark");
+        if (!commentMark) return false;
+        // Attribute name isn't documented explicitly by Liveblocks, so we
+        // check both spellings we've seen used for this kind of mark.
+        const threadId: string | undefined =
+          (commentMark.attrs as any)?.threadId || (commentMark.attrs as any)?.id;
+        if (!threadId) return false;
+        const el = document.getElementById(`thread-${threadId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          setActiveThreadId(threadId);
+          window.setTimeout(() => setActiveThreadId((cur) => (cur === threadId ? null : cur)), 2000);
+        }
+        return false; // let Tiptap still place the cursor normally
+      },
+    },
   });
 
   if (!editor) return null;
@@ -145,10 +177,10 @@ function CollaborativeEditor({
   );
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_300px] gap-6 items-start">
-      <div>
+    <div className="doc-grid">
+      <div className="doc-grid-toolbar">
         <PresenceBar />
-        <div className="flex items-center gap-2 mb-2">
+        <div className="flex items-center gap-2">
           <ToolbarButton
             label="粗體"
             active={editor.isActive("bold")}
@@ -224,42 +256,53 @@ function CollaborativeEditor({
             </button>
           )}
         </div>
-        <p className="text-xs text-slate mb-2">選取文字後按下「💬」即可留言</p>
+      </div>
+
+      {/* This row is what makes 評論 line up with the essay's hint text —
+          both sit in the same CSS Grid row, so their top edges match
+          regardless of exact content height on either side. */}
+      <div className="doc-grid-hint">
+        <p className="text-xs text-slate">選取文字後按下「💬」即可留言</p>
         {aiError && (
-          <div className="rounded border border-danger/30 bg-danger-tint text-danger text-xs px-3 py-2 mb-2">
+          <div className="rounded border border-danger/30 bg-danger-tint text-danger text-xs px-3 py-2 mt-2">
             {AI_ERROR_MESSAGES[aiError] || "發生錯誤，請稍後再試。"}
           </div>
         )}
+      </div>
+      <div className="doc-grid-sidebar-head">
+        <h4 className="font-display font-bold text-sm">評論</h4>
+      </div>
+
+      {/* Same trick for the second row: the essay box and the comments
+          box are both grid items in this row, so they start at the same
+          height — that's the "inline with the start of the essay box"
+          alignment, without needing to track each individual comment's
+          position against its highlighted sentence (the fragile approach
+          this project already tried and moved away from). */}
+      <div className="doc-grid-editor">
         <div className="rounded border border-line bg-surface px-4 py-3 text-sm leading-relaxed focus-within:border-brand">
           <EditorContent editor={editor} />
         </div>
         <FloatingComposer editor={editor} />
-
-        {/* History lives in this same (left) column, not spanning the full
-            page width — this is what makes it exactly as wide as the editor
-            above it, rather than wider. */}
         {historySlot}
       </div>
 
-      {/* This column is position:relative + overflow-y:auto with a bounded
-          height so a long list of comments scrolls internally rather than
-          growing the page indefinitely. Threads render as plain stacked
-          cards (Liveblocks' <Thread>, not the position-computed
-          AnchoredThreads) — no absolute positioning math means no
-          overlapping/clipping/mistimed-first-render, which is what was
-          going wrong before. AI feedback gets its own visually distinct
-          section below the human comments, per instruction — it's a
-          general comment (not anchored to a specific sentence), so mixing
-          it into the anchored-style UI never made sense anyway. */}
-      <div className="relative max-h-[70vh] overflow-y-auto lg:sticky lg:top-4 flex flex-col gap-5">
+      <div className="doc-grid-sidebar-body relative max-h-[70vh] overflow-y-auto lg:sticky lg:top-4 flex flex-col gap-5 comments-sidebar">
         <div>
-          <h4 className="font-display font-bold text-sm mb-3">評論</h4>
           {humanThreads.length === 0 ? (
             <p className="text-xs text-slate">尚無評論。</p>
           ) : (
             <div className="flex flex-col gap-3">
               {humanThreads.map((thread) => (
-                <div key={thread.id} className="rounded border border-line bg-surface overflow-hidden">
+                <div
+                  key={thread.id}
+                  id={`thread-${thread.id}`}
+                  className={`rounded border overflow-hidden transition-shadow ${
+                    thread.id === activeThreadId
+                      ? "border-brand ring-2 ring-brand"
+                      : "border-line bg-surface"
+                  }`}
+                >
                   <Thread thread={thread} />
                 </div>
               ))}
@@ -284,6 +327,48 @@ function CollaborativeEditor({
       </div>
 
       <style jsx global>{`
+        /* Two-row CSS Grid so the left (essay) and right (comments)
+           columns line up at the same points — no JS/pixel measurement,
+           just letting Grid compute row heights from real content. Single
+           column on mobile, split into 1fr / 300px from lg breakpoint up,
+           matching the old grid-cols-1 lg:grid-cols-[1fr_300px] behavior. */
+        .doc-grid {
+          display: grid;
+          grid-template-columns: 1fr;
+          row-gap: 0.5rem;
+          grid-template-areas:
+            "toolbar"
+            "hint"
+            "sidebar-head"
+            "editor"
+            "sidebar-body";
+        }
+        @media (min-width: 1024px) {
+          .doc-grid {
+            grid-template-columns: 1fr 300px;
+            column-gap: 1.5rem;
+            grid-template-areas:
+              "toolbar toolbar"
+              "hint sidebar-head"
+              "editor sidebar-body";
+          }
+        }
+        .doc-grid-toolbar {
+          grid-area: toolbar;
+        }
+        .doc-grid-hint {
+          grid-area: hint;
+        }
+        .doc-grid-sidebar-head {
+          grid-area: sidebar-head;
+        }
+        .doc-grid-editor {
+          grid-area: editor;
+        }
+        .doc-grid-sidebar-body {
+          grid-area: sidebar-body;
+        }
+
         .ProseMirror {
           outline: none;
           min-height: 12rem;
@@ -296,23 +381,38 @@ function CollaborativeEditor({
           border-radius: 2px;
         }
         /* Liveblocks' own comment-anchor highlight (applied automatically
-           by addPendingComment()) — recolored to a distinct orange so it
-           doesn't read as the same thing as the yellow highlighter above.
-           Liveblocks themes via --lb-* CSS variables; --lb-accent drives
-           their default highlight/accent color, so this is the primary
-           lever. Backup class-name overrides included in case the
-           variable alone doesn't cover it — if the highlight still looks
-           unchanged after this, the actual class name may differ from
-           these guesses and is worth a quick check against
-           https://liveblocks.io/docs/api-reference/liveblocks-react-tiptap
-           for the current comment-mark selector. */
-        .lb-root {
+           when a comment is submitted via addPendingComment()/
+           FloatingComposer) — recolored to a distinct orange so it doesn't
+           read as the same thing as the yellow highlighter above. --lb-
+           accent is now set on .doc-grid (not just .lb-root) because the
+           editor content itself lives outside of any .lb-root wrapper —
+           it's raw ProseMirror DOM — so the variable needs to cascade
+           down from a shared ancestor to reach it. The class-name
+           fallbacks below are a defensive net in case Liveblocks' actual
+           mark class differs from these guesses — worth confirming
+           visually after this batch. */
+        .doc-grid {
           --lb-accent: 30 100% 50%;
         }
-        .lb-tiptap-comment-highlight,
-        [data-lb-comment-highlight],
-        [data-highlight="true"] {
+        .doc-grid .lb-tiptap-comment-highlight,
+        .doc-grid [data-lb-comment-highlight],
+        .doc-grid [data-highlight="true"] {
           background-color: rgba(255, 140, 0, 0.32) !important;
+          cursor: pointer;
+        }
+
+        /* Force the comment sidebar's text to match the essay's own
+           font-size/line-height/family (Liveblocks' <Thread> ships its
+           own internal styling that renders noticeably larger than our
+           text-sm essay body). Targeting every descendant of .lb-root
+           with a tag-based wildcard, rather than guessing Liveblocks'
+           specific internal class names, so this doesn't depend on us
+           correctly reverse-engineering their DOM structure. */
+        .comments-sidebar .lb-root,
+        .comments-sidebar .lb-root * {
+          font-size: 0.875rem !important;
+          line-height: 1.625 !important;
+          font-family: inherit !important;
         }
       `}</style>
     </div>

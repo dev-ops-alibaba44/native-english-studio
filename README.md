@@ -2,6 +2,47 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🩹 Batch 9.6 — comment font-size, layout alignment, click-to-jump highlighting
+
+### (6) Comments column now aligned with the essay column
+Restructured the editor into a two-row CSS Grid instead of two independent columns. "評論" now sits in
+the same grid row as "選取文字後按下「💬」即可留言", and the comments box starts in the same row as the
+essay box — both pairs share a row, so Grid aligns their top edges automatically from real content
+height, not a guessed spacer or pixel offset. This is a different mechanism from the `AnchoredThreads`
+approach we moved away from — that tracked *each individual comment* against its own highlighted
+sentence continuously; this just aligns two column headers/boxes once, which doesn't have the same
+fragility.
+
+### (4) Comment sidebar font-size now matches the essay
+Liveblocks' `<Thread>` component ships noticeably larger internal text than our `text-sm` essay body.
+Rather than guess Liveblocks' specific internal class names (got that wrong once already, in 9.5), the
+fix targets every element inside `.lb-root` with a tag-based wildcard, forcing 14px / 1.625 line-height /
+inherited font-family regardless of Liveblocks' actual DOM structure. Applies to the "評論" list and the
+"🤖 AI 回饋" section.
+
+### (5) Click a highlighted word → jump to its comment in the sidebar
+Added a click handler on the essay editor: clicking a comment-highlighted word now scrolls the matching
+thread card into view in the sidebar and briefly rings it in brand navy, so it's clear which comment
+belongs to which highlight. This is **not** Liveblocks' `AnchoredThreads`/`FloatingThreads` — those
+continuously pixel-position every thread against the editor's layout (the fragile approach in the 9.5
+changelog below); this is a one-off DOM lookup that only runs on click, so it can't drift out of sync the
+way pixel-tracking could.
+
+**Two things in this one are worth double-checking on your end**, since neither could be verified without
+a live browser: the mark's thread-ID attribute name (checked as either `threadId` or `id` — if clicking a
+highlight doesn't jump to its comment, this is the first thing to look at), and the orange highlight color
+on commented text (same open question carried over from 9.5 below — the CSS variable is now applied one
+level higher in the DOM tree, which may or may not resolve it).
+
+### Also answered (not a code change): Anthropic Console usage not showing
+Usage/cost data can take a few minutes to appear after a request completes (usually well under 5, but
+sometimes a bit longer), and the Console's Usage/Cost pages default to filtering by Workspace, model, and
+month — if the key was generated under a specific Workspace and the page is showing a different one (or
+last month instead of this one), it'll look empty even though requests are going through. Worth checking:
+you're on `platform.claude.com` (not `claude.ai/settings/billing`, which is the separate subscription
+billing page and won't show API usage at all), the Workspace selector matches where the key lives, and
+the date range includes today.
+
 ## 🩹 Batch 9.5 — comment system overhaul, AI comments now visible, save button, arrow, prompt caching
 
 ### The big one: why comments were unreliable, overlapping, clipped, and why AI feedback never showed
