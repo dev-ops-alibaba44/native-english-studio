@@ -27,7 +27,7 @@ export default async function AdvisorTodayPage() {
   const { data: students } = await supabase
     .from("profiles")
     .select("id, display_name")
-    .eq("primary_advisor_id", user!.id);
+    .eq("role", "student");
 
   const studentIds = (students || []).map((s) => s.id);
   const studentNameById = new Map((students || []).map((s) => [s.id, s.display_name]));

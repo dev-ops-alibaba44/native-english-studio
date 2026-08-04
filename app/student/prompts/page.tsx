@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { BrainstormChat } from "@/components/BrainstormChat";
 
 const PROMPTS = [
   {
@@ -45,6 +46,10 @@ export default function PromptsPage() {
           </div>
         );
       })}
+
+      <div className="mt-6">
+        <BrainstormChat />
+      </div>
     </div>
   );
 }

@@ -7,6 +7,7 @@ const NAV = [
   { href: "/agency", label: "機構總覽" },
   { href: "/agency/capacity", label: "顧問產能" },
   { href: "/agency/students", label: "學生總覽" },
+  { href: "/agency/prompts", label: "發想與大綱" },
   { href: "/agency/billing", label: "帳單與繳費" },
 ];
 

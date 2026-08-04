@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   LiveblocksProvider,
   RoomProvider,
@@ -107,6 +108,7 @@ function CollaborativeEditor({
   initialLastSavedAt?: string | null;
 }) {
   const liveblocksExtension = useLiveblocksExtension();
+  const router = useRouter();
   const { threads } = useThreads();
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
@@ -242,15 +244,26 @@ function CollaborativeEditor({
                 formData.set("content", editor.getText());
                 formData.set("content_json", JSON.stringify(editor.getJSON()));
                 try {
+                  console.log("[儲存版本] saving…");
                   await onSaveSnapshot(formData);
+                  console.log("[儲存版本] saved, updating timestamp locally + refreshing route");
                   setLastSavedAt(new Date());
                   setSaveError(null);
+                  // Belt-and-suspenders #2: explicitly ask Next.js to refetch this
+                  // route's Server Component data now. revalidatePath() inside the
+                  // action *should* propagate automatically, but router.refresh()
+                  // is the documented, guaranteed way to force it rather than
+                  // relying on that happening on its own — if the previous fix
+                  // (local state + prop-sync effect) still wasn't enough, this
+                  // closes the remaining gap regardless of what the exact cause
+                  // was.
+                  router.refresh();
                 } catch (err) {
                   // Errors must always surface to the UI, never fail silently —
                   // previously this whole block would just not run if the save
                   // action threw, with nothing visible to explain why the
                   // timestamp never updated.
-                  console.error("Failed to save version", err);
+                  console.error("[儲存版本] failed:", err);
                   setSaveError("版本儲存失敗，請稍後再試。");
                 }
               }}

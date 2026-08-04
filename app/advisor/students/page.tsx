@@ -25,14 +25,16 @@ export default async function AdvisorStudentsPage({
 
   const { data: students } = await supabase
     .from("profiles")
-    .select("id, display_name, applications(id, stage, deadline, schools(name))")
-    .eq("primary_advisor_id", user!.id);
+    .select(
+      "id, display_name, primary_advisor_id, primary_advisor:profiles!primary_advisor_id(display_name), applications(id, stage, deadline, schools(name))"
+    )
+    .eq("role", "student");
 
   return (
     <div>
       <h1 className="font-display text-2xl font-bold text-ink mb-1">學生總覽</h1>
       <p className="text-sm text-slate mb-6">
-        {students?.length || 0} 位學生 — 點選任一申請項目可查看草稿與留下回饋。
+        {students?.length || 0} 位學生（機構內所有學生）— 點選任一申請項目可查看草稿與留下回饋。
       </p>
 
       {error && (
@@ -48,7 +50,7 @@ export default async function AdvisorStudentsPage({
 
       <div className="flex flex-col gap-4">
         {!students || students.length === 0 ? (
-          <p className="text-sm text-slate">目前還沒有指派的學生。</p>
+          <p className="text-sm text-slate">機構內目前還沒有學生。</p>
         ) : (
           students.map((student: any) => {
             const addApplicationForThisStudent = createApplicationFor.bind(
@@ -58,7 +60,18 @@ export default async function AdvisorStudentsPage({
             );
             return (
             <div key={student.id} className="rounded border border-line bg-surface shadow-card p-5">
-              <div className="font-display font-bold text-base mb-3">{student.display_name}</div>
+              <div className="flex items-center gap-2 mb-3">
+                <div className="font-display font-bold text-base">{student.display_name}</div>
+                {student.primary_advisor_id === user!.id ? (
+                  <span className="text-[11px] rounded-full bg-brand/10 text-brand px-2 py-0.5 font-semibold">
+                    ⭐ 你是主要顧問
+                  </span>
+                ) : (
+                  <span className="text-[11px] rounded-full bg-line/40 text-slate px-2 py-0.5">
+                    主要顧問：{student.primary_advisor?.display_name || "尚未指派"}
+                  </span>
+                )}
+              </div>
               {(!student.applications || student.applications.length === 0) && (
                 <p className="text-sm text-slate">尚未新增任何申請項目。</p>
               )}

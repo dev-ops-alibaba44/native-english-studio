@@ -2,6 +2,64 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🩹 Batch 9.8 — agency-wide advisor access, brainstorming tool, financial model v2 additions
+
+### (4) Every advisor now sees every student at their agency
+New SQL patch: `supabase/batch9_8_agency_wide_advisor_access.sql`. Broadened every RLS policy that used
+to gate on `primary_advisor_id = auth.uid()` to instead check agency membership (`role = 'advisor'` +
+same `agency_id`) — the same pattern already used for agency admins. `primary_advisor_id` stays on the
+student's profile, now purely a label: student lists in both the advisor and agency portals show
+"⭐ 你是主要顧問" when you're the original assigned advisor, or "主要顧問：[name]" when you're not
+(full access either way). No table changes, no data migration — just policies, so this patch is safe to
+run on your existing database. Caseload/capacity numbers on the agency dashboard still count primary
+assignments only, same as before.
+
+### (5) Brainstorming tool — built, live at 發想與大綱 for all three portals
+`/student/prompts` (already existed as a static list — now has a real AI chat below it),
+`/advisor/prompts`, and `/agency/prompts` (both new). Paste an essay prompt, think out loud, and the AI
+asks concrete follow-up questions rather than writing anything for you — same Haiku 4.5 model, same
+Traditional-Chinese-output rule as essay feedback. Deliberately **not saved anywhere** — it's a
+scratch-pad, not tied to a specific application/draft, so there was no natural place to persist it
+without inventing one prematurely; flag if you'd rather it save.
+
+### (6) & (7) Premium Dashboard and Super Premium roadmap — not built yet, on purpose
+These are both substantially bigger than the brainstorming tool — new database tables (grades,
+activities, awards, test scores, possibly report-card image handling), a new AI prompt design for
+holistic assessment, and for Super Premium, actual multi-year projection logic that doesn't exist
+anywhere in the app yet. Building both well in the same batch as everything else here risked doing
+either (or both) poorly. Before starting either as its own batch, worth confirming:
+- **Premium Dashboard**: should grades come from manual entry only for v1, or do you want report-card
+  image upload/OCR from day one? OCR is a real scope jump (extraction accuracy, review/correction UI).
+- **Super Premium roadmap**: what should the output actually look like — a single AI-generated written
+  plan, a structured year-by-year checklist, or something visual? And does it need its own dashboard UI,
+  or does it extend the Premium one?
+
+Once you've got a shape in mind for each, I'll scope and build them as their own batches.
+
+### (2) Financial model — researched pricing, added the parent revenue tab, addressed the loophole question
+Updated `Native_English_Financial_Model_v2.xlsx`:
+- **(2a)** Researched comparable pricing for the Super Premium roadmap tier: independent educational
+  consultants selling human multi-year counseling packages average ~$6,500 over 2–4 years (~$1,600–
+  3,250/year equivalent); pure self-serve planning software (Scoir) runs ~$2.50/student/year but sells
+  at massive institutional scale directly to schools. Your $450–550/seat/year sits between the two,
+  which is the right place for a software add-on layered on top of an agency's own human advisors — full
+  writeup is now in the new **Direct-to-Parent** tab.
+- **(2b)** Added a **Direct-to-Parent** tab: a standalone, monthly-billed scenario (not folded into the
+  main 3-year P&L, since that go-to-market is still on hold) — so it's ready to activate whenever you
+  decide to pursue it.
+- **(2c)** Answered the anti-loophole question directly in that same tab: the main safeguard is already
+  structural — the solo/parent tier has no human advisor collaboration, so an agency's own student
+  switching to it would be a real downgrade, not a free workaround. Two more levers (a contract term,
+  and keeping the price non-cheaper than an agency seat) are noted alongside it.
+
+### (1) Save timestamp — second attempt
+Your screenshot confirmed the first fix (9.7) didn't hold. Changed approach: added an explicit
+`router.refresh()` call right after a successful save, which is the documented, guaranteed way to force
+Next.js to refetch this route's data rather than relying on it happening automatically — plus temporary
+console logging (`[儲存版本] …`) around the save handler so if this *still* doesn't do it, your browser
+console will show exactly where it's breaking rather than me guessing a third time. Please check that
+console output specifically if the timestamp still doesn't update live.
+
 ## 🩹 Batch 9.7 — AI feedback in Traditional Chinese, save-timestamp fix, updated financial model
 
 ### (5) AI feedback now written in Traditional Chinese
