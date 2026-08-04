@@ -2,6 +2,80 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🩹 Batch 9.7 — AI feedback in Traditional Chinese, save-timestamp fix, updated financial model
+
+### (5) AI feedback now written in Traditional Chinese
+Added an explicit instruction to the system prompt: the feedback itself must be written in
+Traditional Chinese throughout, even though the essay being reviewed stays in English. Short English
+phrases quoted from the essay inline are fine; the surrounding commentary is always Chinese now.
+
+### (3) "最後儲存於" timestamp now updates immediately, no reload needed
+Two changes: the save button's click handler is now wrapped in try/catch so a failed save shows a
+visible error instead of silently doing nothing (which would have looked exactly like "the timestamp
+just didn't update"); and a `useEffect` now also re-syncs the displayed timestamp whenever the
+server-provided `initialLastSavedAt` prop changes, as a second, independent path to the same result.
+Between the two, this shouldn't be able to require a manual reload anymore — but flagging it as worth
+a specific retest, since I couldn't fully reproduce the original symptom without a live browser to
+watch the actual click-to-render timing.
+
+### (1) Deprecation warning — still safe to ignore
+Same one covered in the 9.4 changelog below: `[DEP0169] url.parse()` comes from a transitive
+dependency, not code we wrote, and isn't causing any of the actual bugs. No action taken.
+
+### (2) Multiple advisors on one student — not yet possible, here's why and what it'd take
+Checked the schema: access to a student's applications (and therefore their live essay document,
+since Liveblocks room access reuses the same check) is currently gated entirely by a single
+`primary_advisor_id` column on each student's profile — one advisor, full stop. Agency admins already
+get broader access (any admin at the agency can see any student at that agency), but a *second*
+advisor who isn't the primary one currently gets a flat 403 if they try to open a student's document.
+
+To support several staff on one student, the real fix is a many-to-many join table (e.g.
+`application_collaborators` or `student_advisors`) instead of the single `primary_advisor_id` column,
+with matching RLS policy updates across `profiles`, `applications`, `drafts`, and the Liveblocks auth
+route (which would keep reusing those same policies, so it wouldn't need its own separate logic).
+This is a real, if moderate, schema change — not something to fold in silently alongside everything
+else this batch. Two questions worth answering before I build it:
+- Does *every* advisor at an agency need access to *every* student (simplest: same rule agency admins
+  already get), or do you want per-student assignment of specific advisors (more like a sharing/invite
+  model)?
+- Should the *original* primary advisor stay specially marked (e.g. "shown as the lead" in the UI), or
+  do all assigned advisors count equally once added?
+
+Let me know which shape you want and I'll build it as its own batch.
+
+### (6) Financial model rebuilt with three tiers — see `Native_English_Financial_Model_v2.xlsx`
+Your test request (599 input / 388 output tokens) cost about **$0.0026** — a quarter of a cent — using
+Claude Haiku 4.5's real pricing ($1/M input tokens, $5/M output tokens). That's not a lot at all: the
+model's old placeholder AI-cost assumption ($2.50/seat/month) was roughly 500–800x higher than what a
+realistic month of actual usage would cost. That gap is now corrected in the new model (down to
+$0.30/$0.60/$0.90 per seat/month across the three tiers, still with large built-in headroom — see the
+Assumptions tab notes for the exact math).
+
+New in the v2 workbook:
+- **Three tiers**: Basic (essay editing + advisor feedback + the new brainstorming tool), Premium (AI
+  essay feedback + the new Application Dashboard/AI holistic assessment), Super Premium (adds
+  multi-year roadmap modeling for Gr.6–10 students).
+- **One-time build costs** for the two new features (~$10K brainstorming, ~$30K Dashboard, ~$18K
+  roadmap modeling), landing in Year 2.
+- **After-tax profit target**: added an estimated ~11% BC small-business corporate tax rate (a
+  planning estimate — confirm the real rate with your accountant) and re-based the $100K target to be
+  measured after tax, per your request.
+- **Result**: even after the new build costs and the tax haircut, the breakeven point *drops* — the
+  Breakeven Sensitivity tab now shows roughly **38 active agencies** needed to clear $100K after tax in
+  Year 3 (crossing between 35 and 40 in the table), down from 50 in the old two-tier model. The new
+  tiers add real revenue upside with almost no added AI cost, which more than offsets the extra build
+  and tax costs.
+- Flagged explicitly in the workbook itself: the Super Premium price ($450–550/seat/year) is a new
+  pricing decision above your originally-stated $150–300 range, not a continuation of it — worth a gut
+  check against what agencies would actually pay before treating it as real.
+
+**On your billing-cadence question** (agency yearly + per-seat, but maybe monthly for individual
+parents): that's consistent with how most B2C SaaS prices vs. B2B — parents churn more easily and
+expect monthly flexibility, agencies want annual predictability and are used to buying that way. Since
+individual/parent pricing is still on hold per the roadmap, I haven't built that into this model yet;
+happy to add a parallel "direct-to-parent" revenue block (monthly, no agency layer) if/when that's
+ready to be modeled seriously.
+
 ## 🩹 Batch 9.6 — comment font-size, layout alignment, click-to-jump highlighting
 
 ### (6) Comments column now aligned with the essay column

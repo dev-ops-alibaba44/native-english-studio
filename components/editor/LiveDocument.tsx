@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LiveblocksProvider,
   RoomProvider,
@@ -113,6 +113,18 @@ function CollaborativeEditor({
   const [lastSavedAt, setLastSavedAt] = useState<Date | null>(
     initialLastSavedAt ? new Date(initialLastSavedAt) : null
   );
+  const [saveError, setSaveError] = useState<string | null>(null);
+  // Belt-and-suspenders for the "最後儲存於" timestamp: the click handler
+  // below already updates it optimistically the instant a save resolves,
+  // but useState's initializer only runs once at mount, so if that local
+  // update is ever missed for any reason, this effect re-syncs from the
+  // server-provided initialLastSavedAt prop whenever it changes (e.g.
+  // after Next.js revalidates this route post-save) — either path alone
+  // should be enough, together they mean this can't require a manual
+  // page reload to catch up.
+  useEffect(() => {
+    if (initialLastSavedAt) setLastSavedAt(new Date(initialLastSavedAt));
+  }, [initialLastSavedAt]);
   // Which thread card should be visually "pinged" in the sidebar right now
   // — set when the reader clicks a highlighted/commented word in the essay
   // itself, so they can see which comment that highlight belongs to.
@@ -229,8 +241,18 @@ function CollaborativeEditor({
                 const formData = new FormData();
                 formData.set("content", editor.getText());
                 formData.set("content_json", JSON.stringify(editor.getJSON()));
-                await onSaveSnapshot(formData);
-                setLastSavedAt(new Date());
+                try {
+                  await onSaveSnapshot(formData);
+                  setLastSavedAt(new Date());
+                  setSaveError(null);
+                } catch (err) {
+                  // Errors must always surface to the UI, never fail silently —
+                  // previously this whole block would just not run if the save
+                  // action threw, with nothing visible to explain why the
+                  // timestamp never updated.
+                  console.error("Failed to save version", err);
+                  setSaveError("版本儲存失敗，請稍後再試。");
+                }
               }}
               className="ml-auto rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
             >
@@ -266,6 +288,11 @@ function CollaborativeEditor({
         {aiError && (
           <div className="rounded border border-danger/30 bg-danger-tint text-danger text-xs px-3 py-2 mt-2">
             {AI_ERROR_MESSAGES[aiError] || "發生錯誤，請稍後再試。"}
+          </div>
+        )}
+        {saveError && (
+          <div className="rounded border border-danger/30 bg-danger-tint text-danger text-xs px-3 py-2 mt-2">
+            {saveError}
           </div>
         )}
       </div>

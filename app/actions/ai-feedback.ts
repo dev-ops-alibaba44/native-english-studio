@@ -84,6 +84,13 @@ export async function generateEssayFeedback(
             "for a Taiwan-based consultancy. Students you're reviewing are applying to English-" +
             "medium universities and are not native English speakers, so be attentive to both " +
             "substance and language issues without being discouraging about the latter.\n\n" +
+            "IMPORTANT: Write your entire response in Traditional Chinese (繁體中文), not English. " +
+            "The student reads Traditional Chinese; the essay itself stays in English (do not " +
+            "translate the essay or quote long passages of it back), but your feedback ABOUT the " +
+            "essay must be in Traditional Chinese throughout, including when naming strengths, " +
+            "issues, or examples. It is fine to quote a short English phrase from the essay (a few " +
+            "words) inline when pointing to a specific spot, but the surrounding commentary is " +
+            "always Traditional Chinese.\n\n" +
             "Evaluate the essay across these dimensions:\n" +
             "1. Structure — does it have a clear arc (hook, development, reflection/growth, " +
             "closing), or does it wander?\n" +
