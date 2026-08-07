@@ -4,17 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL } from "@/lib/anthropic";
 import { getLiveblocksServerClient, AI_FEEDBACK_USER_ID } from "@/lib/liveblocks-server";
-
-// Resource cap (Dan's request, Batch 9.10): pooled across ALL of a
-// student's applications, not per-essay — a student revising 5-10 essays
-// ahead of deadlines can burn through feedback calls across many of them,
-// not just one. Mirrors the brainstorming cap's shape (Batch 9.9) but on a
-// 30-day rolling window rather than daily, since essay feedback is a much
-// heavier, less-frequent action than a brainstorming chat turn — a daily
-// reset would essentially never bind. This number is a starting point, not
-// a researched figure; adjust freely once real usage is visible in
-// ai_feedback_log.
-export const MONTHLY_ESSAY_FEEDBACK_LIMIT = 20;
+import { MONTHLY_ESSAY_FEEDBACK_LIMIT } from "@/lib/ai-limits";
 
 function periodStart(): Date {
   const d = new Date();

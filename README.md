@@ -2,6 +2,25 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🩹 Batch 9.10.1 — hotfix: build error from Batch 9.10
+
+Batch 9.10 failed to build with: `Only async functions are allowed to be exported in a "use server" file`,
+pointing at `MONTHLY_ESSAY_FEEDBACK_LIMIT` in `app/actions/ai-feedback.ts`. Next.js enforces that a
+`"use server"` file can only export async functions — a plain `export const` (or any other non-function
+value) at the top level is a hard build error, not a warning, regardless of whether anything actually
+imports it. The exported TypeScript `interface`s in that same file and in `brainstorm.ts`/`documents.ts`
+are fine, since types are erased at compile time and were never a real export in the first place — only
+the one `const` was the problem.
+
+**Fix**: moved `MONTHLY_ESSAY_FEEDBACK_LIMIT` into a new `lib/ai-limits.ts` (no `"use server"` directive,
+so plain constants are fine there) and imported it into `ai-feedback.ts` instead of declaring it inline.
+No behavior change — same cap, same 30-day window, just relocated. No SQL to run for this one.
+
+**On the npm notice**: the "New major version of npm available" line near the top of your terminal output
+is npm's own CLI nagging about itself (11.13.0 → 12.0.2) — it's not related to this project or its
+dependencies, and isn't part of why the build failed. Bumping it is optional and global (`npm install -g
+npm@12.0.2`), not something in this repo's `package.json`; happy to hold off unless you want it done.
+
 ## 🩹 Batch 9.10 — live-update fixes (no more reload needed), essay-feedback AI cap + usage gauge
 
 ### (1) & (2) The "reload to see it" bug — fixed, and here's what was actually happening
