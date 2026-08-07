@@ -1,7 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { brainstormReply, archiveBrainstormSession, type BrainstormMessage } from "@/app/actions/brainstorm";
+import {
+  brainstormReply,
+  archiveBrainstormSession,
+  type BrainstormMessage,
+  type ArchivedSessionRecord,
+} from "@/app/actions/brainstorm";
 
 const ERROR_MESSAGES: Record<string, string> = {
   empty_message: "請先輸入內容。",
@@ -15,6 +20,7 @@ const ERROR_MESSAGES: Record<string, string> = {
 export function BrainstormChat({
   studentId,
   archiveLabel = "封存這段對話",
+  onArchived,
 }: {
   // Whose record an archived session should be saved under. Always the
   // signed-in user for students; advisors/agency admins pass in whichever
@@ -22,6 +28,10 @@ export function BrainstormChat({
   // under the right person and visible to that student's other advisors.
   studentId: string;
   archiveLabel?: string;
+  // Called with the freshly-archived session the moment the save succeeds,
+  // so the parent (BrainstormWorkspace) can prepend it into the visible
+  // list immediately — no page reload needed to see it appear.
+  onArchived?: (session: ArchivedSessionRecord) => void;
 }) {
   const [messages, setMessages] = useState<BrainstormMessage[]>([]);
   const [input, setInput] = useState("");
@@ -53,8 +63,13 @@ export function BrainstormChat({
     if (messages.length === 0) return;
     setArchiveState("saving");
     const result = await archiveBrainstormSession(studentId, messages);
-    setArchiveState(result.success ? "saved" : "idle");
-    if (!result.success) setError(result.error);
+    if (!result.success) {
+      setArchiveState("idle");
+      setError(result.error);
+      return;
+    }
+    setArchiveState("saved");
+    onArchived?.(result.session);
   }
 
   return (
@@ -131,7 +146,7 @@ export function BrainstormChat({
         )}
         <p className="text-[11px] text-slate">
           即時對話本身不會被儲存 — 離開頁面或重新整理後會消失；按下「封存」可把目前這段對話存成一份紀錄。
-          please go to "My Application" for official writing. // 正式寫作請到「我的申請」。
+          正式寫作請到「我的申請」。
         </p>
       </div>
     </div>

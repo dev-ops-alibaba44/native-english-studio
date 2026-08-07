@@ -34,6 +34,23 @@ async function checkAndLogQuota(userId: string): Promise<boolean> {
   return true;
 }
 
+// Read-only variant of the same count, for the account-settings usage
+// gauge (Batch 9.10) — doesn't insert a row, just reports where the
+// student stands against today's limit.
+export async function getBrainstormUsageToday(
+  userId: string
+): Promise<{ used: number; limit: number }> {
+  const supabase = await createClient();
+  const since = new Date();
+  since.setHours(0, 0, 0, 0);
+  const { count } = await supabase
+    .from("brainstorm_usage_log")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", since.toISOString());
+  return { used: count ?? 0, limit: DAILY_BRAINSTORM_LIMIT };
+}
+
 export async function brainstormReply(
   history: BrainstormMessage[],
   newMessage: string
@@ -136,10 +153,25 @@ export async function saveBrainstormAnswer(
 // (by anyone) just reads this row; it never re-runs the AI or re-sends
 // the transcript anywhere.
 // ---------------------------------------------------------------------
+export interface ArchivedSessionRecord {
+  id: string;
+  authorName: string;
+  createdAt: string;
+  transcript: string;
+}
+
+// Returns the newly-created row (id/createdAt/authorName/transcript) so the
+// client can prepend it straight into local state instead of waiting on a
+// page reload or a Server Component refetch to see it — see BrainstormChat
+// + BrainstormSessionArchive, which used to depend on the parent page
+// re-rendering with fresh data. That never happened without a manual
+// reload, since nothing in this flow ever asked Next.js to refetch the
+// page. Returning the row here sidesteps that entirely: no cache/
+// revalidation timing to get right, the archived transcript just appears.
 export async function archiveBrainstormSession(
   studentId: string,
   messages: BrainstormMessage[]
-): Promise<{ success: true } | { success: false; error: string }> {
+): Promise<{ success: true; session: ArchivedSessionRecord } | { success: false; error: string }> {
   if (messages.length === 0) return { success: false, error: "empty_session" };
 
   const supabase = await createClient();
@@ -148,19 +180,38 @@ export async function archiveBrainstormSession(
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
 
+  const { data: authorProfile } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("id", user.id)
+    .single();
+
   const transcript = messages
     .map((m) => `${m.role === "user" ? "【學生/使用者】" : "【AI】"}\n${m.content}`)
     .join("\n\n---\n\n");
 
-  const { error } = await supabase.from("brainstorm_sessions").insert({
-    student_id: studentId,
-    author_id: user.id,
-    transcript,
-  });
+  const { data: inserted, error } = await supabase
+    .from("brainstorm_sessions")
+    .insert({
+      student_id: studentId,
+      author_id: user.id,
+      transcript,
+    })
+    .select("id, created_at")
+    .single();
 
-  if (error) {
+  if (error || !inserted) {
     console.error("archiveBrainstormSession failed:", error);
     return { success: false, error: "archive_failed" };
   }
-  return { success: true };
+
+  return {
+    success: true,
+    session: {
+      id: inserted.id,
+      authorName: authorProfile?.display_name || "使用者",
+      createdAt: inserted.created_at,
+      transcript,
+    },
+  };
 }

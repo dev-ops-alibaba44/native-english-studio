@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   LiveblocksProvider,
   RoomProvider,
@@ -16,6 +15,8 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Highlight from "@tiptap/extension-highlight";
+import { SnapshotHistory, type SnapshotInfo } from "@/components/SnapshotHistory";
+import type { SavedSnapshot } from "@/app/actions/documents";
 import "@liveblocks/react-ui/styles.css";
 import "@liveblocks/react-tiptap/styles.css";
 
@@ -34,6 +35,7 @@ const AI_ERROR_MESSAGES: Record<string, string> = {
   comment_post_failed: "AI 回饋已產生，但留言失敗，請稍後再試。",
   not_authorized: "沒有權限對此文件請求 AI 回饋。",
   not_signed_in: "請重新登入後再試。",
+  monthly_limit_reached: "這位學生本月的 AI 回饋次數已達上限，請至「帳號設定」查看用量，或等下個週期再試。",
 };
 
 function PresenceBar() {
@@ -97,36 +99,36 @@ function ToolbarButton({
 function CollaborativeEditor({
   onSaveSnapshot,
   onRequestAIFeedback,
-  historySlot,
-  initialLastSavedAt,
+  initialSnapshots,
+  basePath,
+  activeSnapshotId,
 }: {
-  onSaveSnapshot?: (formData: FormData) => void | Promise<void>;
+  onSaveSnapshot?: (
+    formData: FormData
+  ) => Promise<{ success: true; snapshot: SavedSnapshot } | { success: false; error: string }>;
   onRequestAIFeedback?: (
     formData: FormData
   ) => Promise<{ success: true } | { success: false; error: string }>;
-  historySlot?: React.ReactNode;
-  initialLastSavedAt?: string | null;
+  initialSnapshots: SnapshotInfo[];
+  basePath: string;
+  activeSnapshotId: string | null;
 }) {
   const liveblocksExtension = useLiveblocksExtension();
-  const router = useRouter();
   const { threads } = useThreads();
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<Date | null>(
-    initialLastSavedAt ? new Date(initialLastSavedAt) : null
-  );
+  // Snapshots (and, derived from it, the "最後儲存於" timestamp) now live
+  // entirely in client state, seeded once from the server's initial query.
+  // A successful save prepends the new row returned by the action directly
+  // — no dependency on router.refresh()/revalidatePath() actually
+  // delivering fresh data back down before the UI can reflect the save.
+  // That dependency (belt-and-suspenders across Batches 9.7/9.8) was the
+  // actual bug: the resync effect could — and did — overwrite the correct
+  // optimistic timestamp with a stale one if the refresh round-trip
+  // resolved with anything less than fully fresh data.
+  const [snapshots, setSnapshots] = useState<SnapshotInfo[]>(initialSnapshots);
   const [saveError, setSaveError] = useState<string | null>(null);
-  // Belt-and-suspenders for the "最後儲存於" timestamp: the click handler
-  // below already updates it optimistically the instant a save resolves,
-  // but useState's initializer only runs once at mount, so if that local
-  // update is ever missed for any reason, this effect re-syncs from the
-  // server-provided initialLastSavedAt prop whenever it changes (e.g.
-  // after Next.js revalidates this route post-save) — either path alone
-  // should be enough, together they mean this can't require a manual
-  // page reload to catch up.
-  useEffect(() => {
-    if (initialLastSavedAt) setLastSavedAt(new Date(initialLastSavedAt));
-  }, [initialLastSavedAt]);
+  const lastSavedAt = snapshots[0] ? new Date(snapshots[0].created_at) : null;
   // Which thread card should be visually "pinged" in the sidebar right now
   // — set when the reader clicks a highlighted/commented word in the essay
   // itself, so they can see which comment that highlight belongs to.
@@ -243,29 +245,19 @@ function CollaborativeEditor({
                 const formData = new FormData();
                 formData.set("content", editor.getText());
                 formData.set("content_json", JSON.stringify(editor.getJSON()));
-                try {
-                  console.log("[儲存版本] saving…");
-                  await onSaveSnapshot(formData);
-                  console.log("[儲存版本] saved, updating timestamp locally + refreshing route");
-                  setLastSavedAt(new Date());
-                  setSaveError(null);
-                  // Belt-and-suspenders #2: explicitly ask Next.js to refetch this
-                  // route's Server Component data now. revalidatePath() inside the
-                  // action *should* propagate automatically, but router.refresh()
-                  // is the documented, guaranteed way to force it rather than
-                  // relying on that happening on its own — if the previous fix
-                  // (local state + prop-sync effect) still wasn't enough, this
-                  // closes the remaining gap regardless of what the exact cause
-                  // was.
-                  router.refresh();
-                } catch (err) {
-                  // Errors must always surface to the UI, never fail silently —
-                  // previously this whole block would just not run if the save
-                  // action threw, with nothing visible to explain why the
-                  // timestamp never updated.
-                  console.error("[儲存版本] failed:", err);
+                const result = await onSaveSnapshot(formData);
+                if (!result.success) {
+                  // Errors must always surface to the UI, never fail
+                  // silently.
                   setSaveError("版本儲存失敗，請稍後再試。");
+                  return;
                 }
+                setSaveError(null);
+                // The editor's own content is untouched by any of this —
+                // saving only ever reads it into FormData, it never
+                // clears or resets the document — so what's in the box
+                // stays exactly as the user left it.
+                setSnapshots((prev) => [result.snapshot, ...prev]);
               }}
               className="ml-auto rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
             >
@@ -324,7 +316,7 @@ function CollaborativeEditor({
           <EditorContent editor={editor} />
         </div>
         <FloatingComposer editor={editor} />
-        {historySlot}
+        <SnapshotHistory snapshots={snapshots} basePath={basePath} activeSnapshotId={activeSnapshotId} />
       </div>
 
       <div className="doc-grid-sidebar-body relative max-h-[70vh] overflow-y-auto lg:sticky lg:top-4 flex flex-col gap-5 comments-sidebar">
@@ -467,16 +459,20 @@ export function LiveDocument({
   roomId,
   onSaveSnapshot,
   onRequestAIFeedback,
-  historySlot,
-  initialLastSavedAt,
+  initialSnapshots,
+  basePath,
+  activeSnapshotId,
 }: {
   roomId: string;
-  onSaveSnapshot?: (formData: FormData) => void | Promise<void>;
+  onSaveSnapshot?: (
+    formData: FormData
+  ) => Promise<{ success: true; snapshot: SavedSnapshot } | { success: false; error: string }>;
   onRequestAIFeedback?: (
     formData: FormData
   ) => Promise<{ success: true } | { success: false; error: string }>;
-  historySlot?: React.ReactNode;
-  initialLastSavedAt?: string | null;
+  initialSnapshots: SnapshotInfo[];
+  basePath: string;
+  activeSnapshotId: string | null;
 }) {
   return (
     <LiveblocksProvider
@@ -495,8 +491,9 @@ export function LiveDocument({
           <CollaborativeEditor
             onSaveSnapshot={onSaveSnapshot}
             onRequestAIFeedback={onRequestAIFeedback}
-            historySlot={historySlot}
-            initialLastSavedAt={initialLastSavedAt}
+            initialSnapshots={initialSnapshots}
+            basePath={basePath}
+            activeSnapshotId={activeSnapshotId}
           />
         </ClientSideSuspense>
       </RoomProvider>

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
-import { BrainstormChat } from "@/components/BrainstormChat";
+import { BrainstormWorkspace } from "@/components/BrainstormWorkspace";
 import { BrainstormAnswers } from "@/components/BrainstormAnswers";
-import { BrainstormSessionArchive, type ArchivedSession } from "@/components/BrainstormSessionArchive";
+import { type ArchivedSession } from "@/components/BrainstormSessionArchive";
 import { QueryPicker } from "@/components/QueryPicker";
 import { QUESTIONS } from "@/lib/brainstorm-questions";
 
@@ -66,19 +66,20 @@ export default async function AgencyPromptsPage({
         <p className="text-sm text-slate mt-4">請先選擇一位學生。</p>
       ) : (
         <div className="mt-4 flex flex-col gap-6">
-          <BrainstormChat studentId={selectedStudent.id} archiveLabel={`封存到「${selectedStudent.display_name}」名下`} />
-
-          <div>
-            <h3 className="font-display font-bold text-base mb-2">
-              {selectedStudent.display_name} 填寫的問題
-            </h3>
-            <BrainstormAnswers questions={QUESTIONS} initialAnswers={studentAnswers} readOnly />
-          </div>
-
-          <div>
-            <h3 className="font-display font-bold text-base mb-2">📄 封存的對話</h3>
-            <BrainstormSessionArchive sessions={studentSessions} />
-          </div>
+          <BrainstormWorkspace
+            studentId={selectedStudent.id}
+            archiveLabel={`封存到「${selectedStudent.display_name}」名下`}
+            initialSessions={studentSessions}
+            heading="📄 封存的對話"
+            betweenSlot={
+              <div className="mt-6">
+                <h3 className="font-display font-bold text-base mb-2">
+                  {selectedStudent.display_name} 填寫的問題
+                </h3>
+                <BrainstormAnswers questions={QUESTIONS} initialAnswers={studentAnswers} readOnly />
+              </div>
+            }
+          />
         </div>
       )}
     </div>

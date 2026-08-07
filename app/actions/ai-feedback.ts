@@ -5,6 +5,37 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL } from "@/lib/anthropic";
 import { getLiveblocksServerClient, AI_FEEDBACK_USER_ID } from "@/lib/liveblocks-server";
 
+// Resource cap (Dan's request, Batch 9.10): pooled across ALL of a
+// student's applications, not per-essay — a student revising 5-10 essays
+// ahead of deadlines can burn through feedback calls across many of them,
+// not just one. Mirrors the brainstorming cap's shape (Batch 9.9) but on a
+// 30-day rolling window rather than daily, since essay feedback is a much
+// heavier, less-frequent action than a brainstorming chat turn — a daily
+// reset would essentially never bind. This number is a starting point, not
+// a researched figure; adjust freely once real usage is visible in
+// ai_feedback_log.
+export const MONTHLY_ESSAY_FEEDBACK_LIMIT = 20;
+
+function periodStart(): Date {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d;
+}
+
+// Shared by the AI-feedback button (to enforce the cap) and the student
+// account-settings gauge (to display it) — one source of truth for both.
+export async function getEssayFeedbackUsage(
+  studentId: string
+): Promise<{ used: number; limit: number }> {
+  const admin = createAdminClient();
+  const { count } = await admin
+    .from("ai_feedback_log")
+    .select("id", { count: "exact", head: true })
+    .eq("student_id", studentId)
+    .gte("created_at", periodStart().toISOString());
+  return { used: count ?? 0, limit: MONTHLY_ESSAY_FEEDBACK_LIMIT };
+}
+
 function toCommentBody(text: string) {
   // Liveblocks comment bodies use their own simple rich-text schema, not
   // Tiptap/ProseMirror JSON — one paragraph node per blank-line-separated
@@ -47,10 +78,13 @@ export async function generateEssayFeedback(
   // re-implementing the role logic here.
   const { data: application } = await supabase
     .from("applications")
-    .select("id")
+    .select("id, student_id")
     .eq("id", applicationId)
     .maybeSingle();
   if (!application) return { success: false, error: "not_authorized" };
+
+  const { used, limit } = await getEssayFeedbackUsage(application.student_id);
+  if (used >= limit) return { success: false, error: "monthly_limit_reached" };
 
   let feedbackText: string;
   let inputTokens: number | null = null;
@@ -157,6 +191,7 @@ export async function generateEssayFeedback(
     const admin = createAdminClient();
     await admin.from("ai_feedback_log").insert({
       application_id: applicationId,
+      student_id: application.student_id,
       requested_by: user.id,
       model: AI_FEEDBACK_MODEL,
       input_tokens: inputTokens,

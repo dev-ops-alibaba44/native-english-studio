@@ -3,14 +3,15 @@ import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { STAGE_ORDER, STAGE_LABELS, type Stage } from "@/lib/stages";
 import { LiveDocument } from "@/components/editor/LiveDocument";
-import { SnapshotHistory } from "@/components/SnapshotHistory";
 import { saveSnapshot } from "@/app/actions/documents";
 import { generateEssayFeedback } from "@/app/actions/ai-feedback";
 import { updateStage } from "./actions";
 
+// snapshot_failed removed (Batch 9.10): save errors now surface inline in
+// LiveDocument itself, returned directly from the action rather than via a
+// redirect+?error= query param.
 const ERROR_MESSAGES: Record<string, string> = {
   stage_failed: "無法更新階段，請稍後再試。",
-  snapshot_failed: "無法儲存快照，請稍後再試。",
 };
 
 export default async function AgencyApplicationPage({
@@ -101,16 +102,9 @@ export default async function AgencyApplicationPage({
         roomId={roomId}
         onSaveSnapshot={saveSnapshotForThisApplication}
         onRequestAIFeedback={requestAIFeedbackForThisApplication}
-        initialLastSavedAt={snapshots?.[0]?.created_at || null}
-        historySlot={
-          snapshots ? (
-            <SnapshotHistory
-              snapshots={snapshots}
-              basePath={returnPath}
-              activeSnapshotId={snapshot || null}
-            />
-          ) : undefined
-        }
+        initialSnapshots={snapshots || []}
+        basePath={returnPath}
+        activeSnapshotId={snapshot || null}
       />
     </div>
   );

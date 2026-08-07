@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { BrainstormAnswers } from "@/components/BrainstormAnswers";
-import { BrainstormChat } from "@/components/BrainstormChat";
-import { BrainstormSessionArchive, type ArchivedSession } from "@/components/BrainstormSessionArchive";
+import { BrainstormWorkspace } from "@/components/BrainstormWorkspace";
+import { type ArchivedSession } from "@/components/BrainstormSessionArchive";
 import { QUESTIONS } from "@/lib/brainstorm-questions";
 
 export default async function PromptsPage() {
@@ -41,12 +41,7 @@ export default async function PromptsPage() {
       <BrainstormAnswers questions={QUESTIONS} initialAnswers={initialAnswers} />
 
       <div className="mt-6">
-        <BrainstormChat studentId={user!.id} />
-      </div>
-
-      <div className="mt-6">
-        <h3 className="font-display font-bold text-base mb-2">📄 過去封存的對話</h3>
-        <BrainstormSessionArchive sessions={sessions} />
+        <BrainstormWorkspace studentId={user!.id} initialSessions={sessions} />
       </div>
     </div>
   );

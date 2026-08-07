@@ -2,6 +2,78 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🩹 Batch 9.10 — live-update fixes (no more reload needed), essay-feedback AI cap + usage gauge
+
+### (1) & (2) The "reload to see it" bug — fixed, and here's what was actually happening
+Both reported cases (腦力激盪 archive not appearing, 最後儲存於 timestamp + 版本歷史 not updating) had
+the same root cause: the part of the screen that changes after you click a button was only ever filled
+in by the *page's own initial load* — nothing connected the button's result to that part of the screen
+after the fact, so it just sat there showing what was true when the page first loaded, until a reload
+made it look at the database again.
+
+For the essay editor specifically, there was a second, sneakier layer on top: the timestamp already had
+some "fix it after the fact" logic from Batches 9.7/9.8 (ask Next.js to quietly refetch the page in the
+background after a save). That's exactly the kind of thing that can *look* like it worked in testing and
+then not hold up — the refetch can come back slower, or with data that isn't as fresh as expected, and
+when it lands, it would silently overwrite the correct just-saved timestamp with the old one. That's
+almost certainly the "I save it, it's right there in 版本歷史, but the timestamp up top still says the
+old time" pattern you saw.
+
+The fix for both: stop routing the result through a page refetch at all. Saving/archiving now hands the
+new record straight back to the part of the screen that displays it, so 💾 儲存版本 and 📄 封存這段對話
+update what you see the instant they succeed — no reload, no background refetch to get right, nothing to
+race against. Also confirmed: the essay text was never being cleared on save (nothing in the save button
+ever touched the editor's own content) — what you typed stays in the box exactly as you left it.
+
+Applies to all three portals (`/student`, `/advisor`, `/agency` — both `applications/[id]` and
+`prompts`).
+
+### (3) Brainstorming disclaimer — now pure Traditional Chinese
+The line under the AI chat box on 發想與大綱 had a stray half-English sentence mixed in
+(`please go to "My Application" for official writing`). Cleaned up to read fully in Chinese.
+
+### (4) New: monthly AI-feedback cap, pooled across all of a student's essays + a usage gauge
+🤖 AI 回饋 (on the essay editor) had no cap at all — unlike the brainstorming tool's daily limit. Added
+one, shaped a bit differently since it's a heavier, less frequent action: **20 AI feedback calls per
+student per rolling 30 days, counted across every one of their applications combined** (not per-essay —
+so it doesn't matter whether all 20 come from one essay or are spread across all 5-10). Whoever clicks
+the button (student, advisor, or agency admin) draws from the same pool, since it's really the student's
+essay being reviewed either way.
+
+**This number (20/30 days) is a starting guess, not a researched one** — there's no real usage data yet
+for essay feedback the way there was for brainstorming (where the cap came from your actual reported
+token usage). Easy to change in one place (`MONTHLY_ESSAY_FEEDBACK_LIMIT` in `app/actions/ai-feedback.ts`)
+once you've seen how it plays out, or say the word and I'll adjust it directly.
+
+New page: **/student/account (帳號設定)**, added to the student nav. Shows two gauges — AI 回饋 (the new
+30-day pooled cap) and AI 腦力激盪 (today's count against the existing daily-30 brainstorming cap, which
+didn't have a visible meter anywhere before this). Only on the student portal for now, matching what was
+asked; straightforward to add a per-student view on the advisor/agency side later if useful.
+
+### Files to run
+New SQL patch: `supabase/batch9_10_essay_feedback_cap.sql` — adds `student_id` to `ai_feedback_log`
+(backfilled from `applications`) so the cap can be counted per student regardless of who clicked the
+button, plus an index for that lookup. Safe to run on your existing database.
+
+### Not done in this batch — needs your input first
+Items (5) and (6) from your last message (agency/parent-purchased AI credits, sold at a markup, tiered
+by Basic/Premium/Super Premium) are a genuinely different piece of work from the four above, and I didn't
+want to guess my way through it. Specifically:
+- **There's no parent login of any kind yet.** The only thing that exists today (`parent_links`) is a
+  read-only magic-link token for viewing progress — not an account, not something that could hold a
+  balance or make a purchase. "The parent can add and spend more" needs a real answer for how a parent
+  authenticates before it can be built.
+- **There's no tier field anywhere in the actual app** — Basic/Premium/Super Premium exist in the
+  financial model spreadsheet, not in the database or the agency/student records. Wiring credits to tiers
+  means deciding where that field lives and who sets it first.
+- **Stripe still isn't connected** (deliberately, pending Vercel deployment). A real purchase flow for
+  either agencies or parents needs real payment processing behind it — I can build the data model (credit
+  balances, a transaction ledger, the markup math) now so it's ready, but an actual "buy more credits"
+  button can't go live against real money until that's connected.
+
+Rather than build a partial version of this now, I'd rather scope it properly with you — happy to do
+that whenever you're ready.
+
 ## 🩹 Batch 9.9 — brainstorming tool: saved answers, archived sessions, daily AI limit
 
 ### (1) Three more starter questions + a saved, timestamped answer box under each

@@ -3,23 +3,22 @@ import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { STAGE_LABELS, type Stage } from "@/lib/stages";
 import { LiveDocument } from "@/components/editor/LiveDocument";
-import { SnapshotHistory } from "@/components/SnapshotHistory";
 import { saveSnapshot } from "@/app/actions/documents";
 import { generateEssayFeedback } from "@/app/actions/ai-feedback";
 
-const ERROR_MESSAGES: Record<string, string> = {
-  snapshot_failed: "無法儲存快照，請稍後再試。",
-};
+// Save errors now surface inline in LiveDocument itself (returned directly
+// from the action, not via a redirect+?error= query param) — this page no
+// longer has any ?error= producer, so there's nothing left to render here.
 
 export default async function ApplicationDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ error?: string; snapshot?: string }>;
+  searchParams: Promise<{ snapshot?: string }>;
 }) {
   const { id } = await params;
-  const { error, snapshot } = await searchParams;
+  const { snapshot } = await searchParams;
   const supabase = await createClient();
 
   const { data: application } = await supabase
@@ -59,12 +58,6 @@ export default async function ApplicationDetailPage({
         {app.deadline ? `截止日 ${app.deadline}` : "尚未設定截止日"}
       </p>
 
-      {error && (
-        <div className="rounded border border-danger/30 bg-danger-tint text-danger text-sm px-4 py-3 mb-6">
-          {ERROR_MESSAGES[error] || "發生錯誤，請稍後再試。"}
-        </div>
-      )}
-
       <div className="mb-8">
         <StageThread stage={app.stage as Stage} />
         <p className="text-xs text-slate mt-2">
@@ -81,16 +74,9 @@ export default async function ApplicationDetailPage({
         roomId={roomId}
         onSaveSnapshot={saveSnapshotForThisApplication}
         onRequestAIFeedback={requestAIFeedbackForThisApplication}
-        initialLastSavedAt={snapshots?.[0]?.created_at || null}
-        historySlot={
-          snapshots ? (
-            <SnapshotHistory
-              snapshots={snapshots}
-              basePath={returnPath}
-              activeSnapshotId={snapshot || null}
-            />
-          ) : undefined
-        }
+        initialSnapshots={snapshots || []}
+        basePath={returnPath}
+        activeSnapshotId={snapshot || null}
       />
     </div>
   );

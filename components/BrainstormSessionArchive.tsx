@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export interface ArchivedSession {
   id: string;
@@ -14,6 +14,12 @@ export interface ArchivedSession {
 // is a pure client-side state change, no re-fetch and no AI call involved.
 export function BrainstormSessionArchive({ sessions }: { sessions: ArchivedSession[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(sessions[0]?.id || null);
+  // If a session gets archived while this list was empty (or nothing was
+  // selected yet), jump straight to showing it rather than leaving the
+  // panel on "尚無封存的紀錄" until the user manually opens the dropdown.
+  useEffect(() => {
+    if (!selectedId && sessions.length > 0) setSelectedId(sessions[0].id);
+  }, [sessions, selectedId]);
   const selected = sessions.find((s) => s.id === selectedId) || null;
 
   if (sessions.length === 0) {
