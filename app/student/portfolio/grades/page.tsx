@@ -12,18 +12,26 @@ export default async function StudentGradesPage() {
   const [{ data: configRow }, { data: grades }] = await Promise.all([
     supabase
       .from("student_academic_config")
-      .select("terms_per_year, grading_scale")
+      .select("terms_per_year, grading_scale, school_id, school:taiwan_high_schools(name_zh)")
       .eq("student_id", user!.id)
       .maybeSingle(),
     supabase
       .from("student_grades")
-      .select("id, grade_level, course_name, course_catalog_id, term_1_grade, term_2_grade, term_3_grade, term_4_grade")
+      .select("id, grade_level, course_name, course_catalog_id, term_1_grades, term_2_grades, term_3_grades, term_4_grades")
       .eq("student_id", user!.id)
       .order("sort_order"),
   ]);
 
-  const config: AcademicConfig = configRow || { terms_per_year: 2, grading_scale: "percentage" };
-  const allGrades = (grades || []) as SavedGradeRow[];
+  const config: AcademicConfig = configRow
+    ? {
+        terms_per_year: configRow.terms_per_year,
+        grading_scale: configRow.grading_scale,
+        school_id: configRow.school_id,
+      }
+    : { terms_per_year: 2, grading_scale: "percentage", school_id: null };
+  const schoolName = (configRow as any)?.school?.name_zh || "";
+
+  const allGrades = (grades || []) as unknown as SavedGradeRow[];
   const grades11 = allGrades.filter((g: any) => g.grade_level === 11);
   const grades12 = allGrades.filter((g: any) => g.grade_level === 12);
 
@@ -40,6 +48,7 @@ export default async function StudentGradesPage() {
       <GradesEditor
         studentId={user!.id}
         initialConfig={config}
+        initialSchoolName={schoolName}
         initialGrades11={grades11}
         initialGrades12={grades12}
       />

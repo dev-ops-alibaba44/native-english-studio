@@ -2,6 +2,88 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🩹 Batch 9.12 — Grades bug fixes: tab-switch data loss, GPA storage, input validation; new: school catalog
+
+### (1) Grades "disappearing" when switching Grade 11 ↔ Grade 12 tabs — fixed
+Same category of bug as the essay-editor timestamp fix in 9.10.2, just one component over: each grade-level
+table (`GradeLevelTable`) held its OWN local state, seeded once from the page's initial server-rendered
+data. Switching from the Grade 11 tab to Grade 12 fully unmounted the Grade 11 table; switching back
+remounted it fresh from that same stale initial prop — discarding whatever had just been saved, even
+though it was genuinely saved in the database the whole time (which is why going to the main 學習檔案 page
+and back "fixed" it — that forces a real page reload with fresh data). Fixed by lifting both grade levels'
+row state up into `GradesEditor` itself, above the tab switch, and changing the tabs to show/hide with CSS
+rather than conditionally mounting/unmounting — so there's no longer a component boundary in the way that
+tab-switching could ever cross.
+
+### (1b) & (4) Grading-scale storage and value validation — real fixes, not band-aids
+**What was actually happening**: Batch 9.11 had exactly one grade-value column per term, no matter which
+scale was selected. Percentage → Letter *looked* like separate storage because a letter dropdown just
+displays nothing when the stored value doesn't match any of its options — but it was the same field,
+silently about to be overwritten on next save. Percentage → GPA looked broken because a number input's
+`max` attribute doesn't stop it from showing an out-of-range value that's already there — so switching to
+GPA (0–4.0) just kept showing the raw percentage numbers verbatim, `max` or no `max`. Neither was true
+separation; both were the same accidental-overwrite bug wearing two different disguises.
+
+**Real fix**: every term's grade is now stored as a small object keyed by scale (e.g.
+`{"percentage": "88", "gpa4": "3.7"}`), not a single value — see `supabase/batch9_12_grades_fixes_and_schools.sql`,
+which also migrates every already-entered grade into this new shape (matched to whichever scale your
+student config said was active at the time) before dropping the old columns. Switching scales now
+genuinely shows and edits a separate value per scale, matching what you correctly expected to already be
+happening.
+
+**Garbage values like "34555"**: fixed at the actual point of entry, not just at save time. The grade
+input now rejects a keystroke outright if the resulting value would be non-numeric or already over the
+scale's max (0–100 or 0–4.0) — typing "345" into a percentage field literally isn't possible anymore, the
+third digit is refused the moment it would push the value over 100. Also re-validated on blur and, as a
+last-line backstop, server-side in `saveGradesForLevel` — a save is rejected outright (nothing written) if
+anything invalid somehow still reaches it.
+
+### (1a) Taiwan grading systems — what I found
+Not something I want to state with false precision (I don't have an authoritative breakdown by exact
+percentage), but the qualitative picture is well-supported: nearly all of Taiwan's ~486 senior highs
+(public and private alike — 私立 status doesn't change this, it's the MOE-mandated system for
+MOE-accredited schools) report grades on the 0–100 percentage scale, 60 as the passing mark. Letter grades
+and/or GPA (0–4.0) show up specifically at Taiwan's international schools (Taipei American School,
+Morrison Academy, Dominican, Kang Chiao, etc. — a few dozen schools nationwide) and in bilingual/
+experimental (雙語實驗教育) programs that follow a US-style curriculum, plus IB-program students, who
+technically get IB's own 1–7-per-subject scale rather than either of the above. So: percentage is the
+overwhelming default for ordinary 高中/高職; letter/GPA is specifically an international/bilingual-curriculum
+signal, not a public-vs-private split.
+
+### (2) New: Taiwan school catalog, course-school association
+New "就讀學校" field on the Grades page (same type-and-search pattern as the course field). Seeded with a
+**starting set of ~24 well-known public/private/international schools — not the official MOE directory**,
+and I want to be upfront about that rather than imply more completeness than it has: hand-authoring an
+accurate list of all ~486 senior highs and ~700+ junior highs from memory risks real errors, which would
+be worse for a product used by actual Taiwanese families than a visibly-growing starter list. It grows the
+same way the course catalog does — "找不到就新增" — so it'll fill out from real usage. If you can point me
+to Taiwan's MOE open-data school directory (or another authoritative source), I can write a one-time import
+script and load the real, complete list instead of relying on organic growth.
+
+Once a student has a school on file, courses they save get associated with that school
+(`school_courses` table) — the course-search autocomplete now checks that association first, so a new
+student at a school where others have already entered courses sees those names surface first, per your
+request.
+
+### (3) Course/school lookup — now searches as you type, not on Enter/Tab
+The debounce was the same either way, but starting from zero always waited the full 250ms before firing
+anything, and a fast typist kept resetting that timer with every keystroke — which is what made it feel
+like nothing happened until you paused (typically right when tabbing/entering to the next field). The
+first keystroke of a fresh search now fires almost immediately (~40ms); subsequent keystrokes debounce at
+120ms instead of 250ms. Also fixed a latent race where a slow early response could land after a faster
+later one and show stale results — responses are now sequence-checked and out-of-order ones are dropped.
+
+### Files to run
+New SQL patch: `supabase/batch9_12_grades_fixes_and_schools.sql` — migrates `student_grades` to the new
+per-scale jsonb columns (preserving all existing data), adds `taiwan_high_schools` + `school_courses` +
+the school-picker column on `student_academic_config`, plus starter school seed data. **Run this before
+testing** — the app won't work against the old schema anymore.
+
+### (5) Next: sports / extracurriculars / awards / volunteering
+Per your instruction, holding off until the above is confirmed working. Will follow the same reusable
+"4-in-1" component pattern (title, org, month/year date range, 50-word description, hours/week where
+applicable) outlined when this Premium tier work was scoped.
+
 ## 🆕 Batch 9.11 — Premium tier, part 1: 學習檔案 (Portfolio) + 成績 (Grades)
 
 First installment of the Premium-tier application-profile system, delivered in the order you asked for:

@@ -1,26 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { searchCourseCatalog, addCustomCourse, type CourseMatch } from "@/app/actions/grades";
+import { searchSchoolCatalog, addCustomSchool, type SchoolMatch } from "@/app/actions/grades";
 
-export function CourseAutocomplete({
+export function SchoolAutocomplete({
   value,
   onSelect,
-  schoolId,
 }: {
-  // Current course name text for this row (controlled from the parent
-  // GradesEditor, since the row itself lives in that component's state).
   value: string;
-  // Called with the chosen name and, if it came from the catalog, its id
-  // (kept for usage-count tracking / future curation) — id is null for a
-  // manually-typed name that was never matched or added.
-  onSelect: (name: string, courseId: string | null) => void;
-  // The student's school, if set — search results already used at that
-  // school are ranked first (see searchCourseCatalog).
-  schoolId?: string | null;
+  onSelect: (name: string, schoolId: string | null) => void;
 }) {
   const [query, setQuery] = useState(value);
-  const [matches, setMatches] = useState<CourseMatch[]>([]);
+  const [matches, setMatches] = useState<SchoolMatch[]>([]);
   const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -40,11 +31,7 @@ export function CourseAutocomplete({
   function runSearch(text: string) {
     const seq = ++requestSeq.current;
     setSearching(true);
-    searchCourseCatalog(text, schoolId).then((results) => {
-      // Ignore stale responses that resolve out of order (a slow early
-      // keystroke's request landing after a later one) — without this a
-      // fast typist could briefly see results for text they've already
-      // changed away from.
+    searchSchoolCatalog(text).then((results) => {
       if (seq !== requestSeq.current) return;
       setMatches(results);
       setSearching(false);
@@ -54,7 +41,7 @@ export function CourseAutocomplete({
   function handleChange(text: string) {
     const wasEmpty = query.trim().length === 0;
     setQuery(text);
-    onSelect(text, null); // typing freely un-links any previous catalog match
+    onSelect(text, null);
     setOpen(true);
     if (debounceRef.current) clearTimeout(debounceRef.current);
     const trimmed = text.trim();
@@ -62,20 +49,14 @@ export function CourseAutocomplete({
       setMatches([]);
       return;
     }
-    // First keystroke of a fresh search fires close to immediately —
-    // waiting a full debounce before showing *anything* is what made this
-    // feel like it only searched on Enter/Tab. Subsequent keystrokes
-    // (still actively typing) get a short debounce so a fast typist
-    // doesn't fire a request per letter.
-    const delay = wasEmpty ? 40 : 120;
-    debounceRef.current = setTimeout(() => runSearch(trimmed), delay);
+    debounceRef.current = setTimeout(() => runSearch(trimmed), wasEmpty ? 40 : 120);
   }
 
   async function handleAddNew() {
-    const result = await addCustomCourse(query);
+    const result = await addCustomSchool(query);
     if (result.success) {
-      setQuery(result.course.name_en);
-      onSelect(result.course.name_en, result.course.id);
+      setQuery(result.school.name_zh);
+      onSelect(result.school.name_zh, result.school.id);
       setOpen(false);
     }
   }
@@ -87,7 +68,7 @@ export function CourseAutocomplete({
         value={query}
         onChange={(e) => handleChange(e.target.value)}
         onFocus={() => setOpen(true)}
-        placeholder="輸入科目名稱（中文或英文皆可）"
+        placeholder="輸入學校名稱（中文或英文皆可）"
         className="w-full rounded border border-line px-2 py-1.5 text-sm outline-none focus:border-brand"
       />
       {open && query.trim().length > 0 && (
@@ -107,14 +88,14 @@ export function CourseAutocomplete({
               key={m.id}
               type="button"
               onClick={() => {
-                setQuery(m.name_en);
-                onSelect(m.name_en, m.id);
+                setQuery(m.name_zh);
+                onSelect(m.name_zh, m.id);
                 setOpen(false);
               }}
               className="w-full text-left px-3 py-2 text-sm hover:bg-brand-tint"
             >
-              <span className="font-medium">{m.name_en}</span>
-              {m.name_zh && m.name_zh !== m.name_en && <span className="text-slate"> — {m.name_zh}</span>}
+              <span className="font-medium">{m.name_zh}</span>
+              {m.name_en && <span className="text-slate"> — {m.name_en}</span>}
             </button>
           ))}
         </div>
