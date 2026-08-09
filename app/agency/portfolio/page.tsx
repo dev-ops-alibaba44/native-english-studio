@@ -4,10 +4,10 @@ import { QueryPicker } from "@/components/QueryPicker";
 
 const SECTIONS = [
   { slug: "grades", label: "成績", ready: true },
-  { slug: "activities", label: "課外活動", ready: false },
-  { slug: "sports", label: "運動", ready: false },
-  { slug: "awards", label: "獎項與榮譽", ready: false },
-  { slug: "service", label: "志工與工讀", ready: false },
+  { slug: "activities", label: "課外活動", ready: true },
+  { slug: "sports", label: "運動", ready: true },
+  { slug: "awards", label: "獎項與榮譽", ready: true },
+  { slug: "service", label: "志工與工讀", ready: true },
 ];
 
 export default async function AgencyPortfolioPage({

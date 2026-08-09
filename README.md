@@ -2,6 +2,49 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 9.13 — 學習檔案 complete: activities/sports/awards/service + official Taiwan school data
+
+### (1) Sports / Extracurriculars / Awards / Volunteering — live now
+All four remaining 學習檔案 sub-pages are built and live in all three portals, following the same shape you
+specified:
+- **課外活動 (Extracurriculars)** and **運動 (Sports)**: title, org, month/year date range (leave "結束"
+  blank if still ongoing), hours/week, 50-word description.
+- **志工與工讀 (Volunteering / part-time jobs)**: same shape as above.
+- **獎項與榮譽 (Awards)**: title, issuing organization, a single month/year date, 50-word description — no
+  hours/week, since an award isn't an ongoing time commitment.
+
+One shared table (`student_activities`, distinguished by a `category` column) and one shared editor
+component power all four — they're structurally identical except for which fields show, so this avoids
+four near-duplicate implementations that would drift out of sync over time. Same explicit-save,
+full-replace-on-save pattern as Grades. The 50-word cap is enforced by clamping input as you type (paste a
+longer draft and it trims to 50 words automatically) plus a live counter, with the same save-time
+server-side backstop used elsewhere.
+
+The 學習檔案 landing page in all three portals now shows a real fill-in count for all five sections, and
+the AI-assessment preview card no longer says "only Grades is available."
+
+### (2) Official Taiwan school data loaded
+Replaced reliance on the small hand-typed starter list with your three actual open-data sources:
+- **Comprehensive High Schools** (data.gov.tw/en/datasets/46316): 108 unique schools after de-duplicating
+  the multi-year source file. No public/private field in this source, so it's inferred from "私立"
+  appearing in the school's own name (how these are conventionally named) — flagged in the migration file
+  in case that heuristic ever needs correcting for an edge case.
+- **Independent Senior Secondary Schools** (data.gov.tw/en/datasets/6090): 3 unique schools, using the
+  source's own public/private column directly.
+- **International schools** (MOE): 22 unique schools. This source only provides English names, so those
+  are stored as both the Chinese and English name field for now (same fallback as user-added custom
+  entries) — genuinely no Chinese name available from the source itself.
+
+156 real schools total (133 from your three files + the ~24 hand-typed ones from 9.11/9.12, which are
+complementary, not overlapping — 建國中學/北一女中-style single-track senior highs weren't in any of your
+three sources, so that starter list still earns its place). Same "找不到就新增" fallback as before for
+anything still missing.
+
+### Files to run
+`supabase/batch9_13_activities_and_schools.sql` — creates `student_activities` (+ RLS) and loads all 133
+schools from your three CSVs into `taiwan_high_schools`. Safe to run once; the school inserts use
+`on conflict do nothing` so re-running is harmless.
+
 ## 🩹 Batch 9.12 — Grades bug fixes: tab-switch data loss, GPA storage, input validation; new: school catalog
 
 ### (1) Grades "disappearing" when switching Grade 11 ↔ Grade 12 tabs — fixed
