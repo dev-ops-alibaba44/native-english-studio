@@ -8,6 +8,7 @@ const NAV = [
   { href: "/student/applications", label: "我的申請" },
   { href: "/student/calendar", label: "截止日曆" },
   { href: "/student/prompts", label: "發想與大綱" },
+  { href: "/student/portfolio", label: "學習檔案" },
   { href: "/student/account", label: "帳號設定" },
 ];
 

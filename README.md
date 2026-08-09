@@ -2,6 +2,88 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 9.11 — Premium tier, part 1: 學習檔案 (Portfolio) + 成績 (Grades)
+
+First installment of the Premium-tier application-profile system, delivered in the order you asked for:
+Grades first, then the 4-in-1 activities/sports/awards/service pattern, then the AI assessment engine.
+
+### New section: 學習檔案 (Portfolio)
+A new top-level nav item in all three portals (`/student/portfolio`, `/advisor/portfolio` +
+`/agency/portfolio`, both with the same student-picker pattern as 發想與大綱). The landing page shows all
+five planned sub-pages as cards — only 成績 (Grades) is live this batch, the other four are visibly marked
+即將推出 (coming soon) rather than broken links, plus a preview card explaining what the AI assessment will
+eventually do once every section is filled in.
+
+### 成績 (Grades) — live now
+- **學制設定**: each student sets how many terms their school uses per year (2/3/4 — covers semester,
+  trimester, and quarter systems) and which grading scale they enter grades in (percentage / letter /
+  GPA 4.0). The grade table below reshapes itself automatically — right number of term columns, right
+  kind of input per cell (a 0–100 number field, a letter dropdown, or a 0–4.0 field).
+- **Course autocomplete**: type in English or Chinese into the subject field and get bilingual suggestions
+  from a shared course catalog as you type. No match → "➕ 新增「...」" adds it to the catalog on the spot
+  (available to every student/advisor/agency from then on, not just re-typed each time). Seeded with a
+  starting set of ~50 common course names spanning Taiwan's 108課綱 core subjects plus common AP/IB/A-Level
+  titles — **not** an authoritative or exhaustive curriculum database, just enough for the "can't find it,
+  add it" flow to feel populated from day one. It'll fill out from real usage, per your instruction.
+- **Grade 11 / Grade 12 tabs**, each a spreadsheet-style table (course rows × term columns), add/remove
+  rows freely, explicit 💾 儲存成績 button — same explicit-save pattern as the rest of the app, no
+  autosave-on-keystroke.
+- Editable from all three portals — student for themselves, advisor/agency admin for any student
+  agency-wide (same access pattern as brainstorming/essays since Batch 9.8).
+
+### Schema
+New file: `supabase/batch9_11_premium_grades.sql` — three tables (`course_catalog`,
+`student_academic_config`, `student_grades`) plus RLS policies mirroring the 9.8/9.9 agency-wide pattern,
+plus the starter course-catalog seed data. Run this before testing.
+
+### Not built yet (next installments, per your requested order)
+- 課外活動 / 運動 / 獎項與榮譽 / 志工與工讀 — the 4-in-1 activities pattern (title, org, month/year date
+  range, 50-word description, hours/week where applicable). Landing page cards are already in place and
+  will light up as each ships.
+- The AI assessment engine — reads across all five sections plus the essays already in progress, and per
+  your answer, frames "chances" as qualitative tiers (Reach / Target / Likely) with a clear disclaimer
+  rather than a numeric percentage. Saved + timestamped + re-pullable, same pattern as brainstorm archives
+  and essay snapshots.
+- How this feature's AI usage gets logged against a student's AI credits is still TBD, same as items 5/6
+  from your last batch — I'd rather fold it into that same future credit ledger than invent a third,
+  separate ad hoc cap system (we'd already have brainstorming's daily cap and essay-feedback's monthly cap
+  as two different shapes; a third would make the eventual credit system harder to unify, not easier).
+
+## 🩹 Batch 9.10.2 — the real fix for the timestamp revert, plus the AI-feedback runtime error
+
+### Why 9.10.1's timestamp fix wasn't enough
+The 9.10 fix moved the snapshot list into local state inside `CollaborativeEditor` — but that component
+lives *inside* Liveblocks' `<ClientSideSuspense>`, and `useThreads()` (used right there) is a
+Suspense-driven hook. When Liveblocks' client SDK needs to resolve a thread it just heard about over its
+websocket — e.g. the AI-feedback comment thread getting created server-side while the page is open — it
+can re-suspend, and React unmounts + remounts everything inside that boundary. Any state kept in there,
+including the snapshot list this batch had just moved in, gets reset back to whatever was there at the
+original page load. That's the actual mechanism behind "it worked Friday, not today": Friday's test
+likely never triggered a re-suspension; today's did, correlating with the AI-feedback runtime error below.
+
+**Fix:** the snapshot list (and the save-error message) now live in `LiveDocument`, one level up, *above*
+`<ClientSideSuspense>` — passed down as props instead of local state inside the Suspense-wrapped
+component. That way a Liveblocks-internal remount underneath can't touch it. Same principle as the
+BrainstormWorkspace fix from 9.10, just one layer higher up the tree than I'd first realized it needed to
+be.
+
+### The "There was an error while getting thread th_..." runtime error
+This is a Liveblocks SDK-internal error (`node_modules/@liveblocks/core/api-client.ts`), not something
+our own code calls or can wrap in a try/catch — it fires while Liveblocks resolves a newly-created thread
+after hearing about it over its own websocket connection. The terminal log confirmed `generateEssayFeedback`
+itself completed normally server-side with no error, and the feedback did show up — matching what you
+saw ("showed up by itself"). This is the SDK recovering from its own transient hiccup, most likely more
+likely to surface the longer a request takes (that one ran ~11.2s) giving more of a window for the
+websocket event and the fetch-to-resolve-it to race.
+
+Added a narrowly-scoped `unhandledrejection` listener in `LiveDocument` that only catches this specific
+message and logs it quietly instead of letting Next's dev overlay treat it as a crash — everything else
+still surfaces normally. No behavior changes to the actual AI feedback flow itself.
+
+### Not changed this round
+Nothing else touched — the essay-feedback cap, usage gauge, and brainstorm-archive fixes from 9.10/9.10.1
+are untouched.
+
 ## 🩹 Batch 9.10.1 — hotfix: build error from Batch 9.10
 
 Batch 9.10 failed to build with: `Only async functions are allowed to be exported in a "use server" file`,

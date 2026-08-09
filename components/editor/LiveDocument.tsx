@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   LiveblocksProvider,
   RoomProvider,
@@ -99,9 +99,12 @@ function ToolbarButton({
 function CollaborativeEditor({
   onSaveSnapshot,
   onRequestAIFeedback,
-  initialSnapshots,
+  snapshots,
+  onSnapshotSaved,
   basePath,
   activeSnapshotId,
+  saveError,
+  onSaveErrorChange,
 }: {
   onSaveSnapshot?: (
     formData: FormData
@@ -109,25 +112,26 @@ function CollaborativeEditor({
   onRequestAIFeedback?: (
     formData: FormData
   ) => Promise<{ success: true } | { success: false; error: string }>;
-  initialSnapshots: SnapshotInfo[];
+  // Snapshots (and saveError) are now owned by LiveDocument, ABOVE the
+  // <ClientSideSuspense> boundary this component lives inside — passed
+  // down as props rather than held in local state here. See the long
+  // comment on LiveDocument below for why: this component can be
+  // legitimately unmounted/remounted by Liveblocks itself (useThreads() is
+  // Suspense-driven), which was silently resetting any state kept in here
+  // back to stale initial values — the actual cause of the "最後儲存於
+  // reverts to the old time" bug, not the router.refresh() race this was
+  // originally (correctly, just incompletely) diagnosed as.
+  snapshots: SnapshotInfo[];
+  onSnapshotSaved: (snapshot: SavedSnapshot) => void;
   basePath: string;
   activeSnapshotId: string | null;
+  saveError: string | null;
+  onSaveErrorChange: (error: string | null) => void;
 }) {
   const liveblocksExtension = useLiveblocksExtension();
   const { threads } = useThreads();
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
-  // Snapshots (and, derived from it, the "最後儲存於" timestamp) now live
-  // entirely in client state, seeded once from the server's initial query.
-  // A successful save prepends the new row returned by the action directly
-  // — no dependency on router.refresh()/revalidatePath() actually
-  // delivering fresh data back down before the UI can reflect the save.
-  // That dependency (belt-and-suspenders across Batches 9.7/9.8) was the
-  // actual bug: the resync effect could — and did — overwrite the correct
-  // optimistic timestamp with a stale one if the refresh round-trip
-  // resolved with anything less than fully fresh data.
-  const [snapshots, setSnapshots] = useState<SnapshotInfo[]>(initialSnapshots);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const lastSavedAt = snapshots[0] ? new Date(snapshots[0].created_at) : null;
   // Which thread card should be visually "pinged" in the sidebar right now
   // — set when the reader clicks a highlighted/commented word in the essay
@@ -249,15 +253,15 @@ function CollaborativeEditor({
                 if (!result.success) {
                   // Errors must always surface to the UI, never fail
                   // silently.
-                  setSaveError("版本儲存失敗，請稍後再試。");
+                  onSaveErrorChange("版本儲存失敗，請稍後再試。");
                   return;
                 }
-                setSaveError(null);
+                onSaveErrorChange(null);
                 // The editor's own content is untouched by any of this —
                 // saving only ever reads it into FormData, it never
                 // clears or resets the document — so what's in the box
                 // stays exactly as the user left it.
-                setSnapshots((prev) => [result.snapshot, ...prev]);
+                onSnapshotSaved(result.snapshot);
               }}
               className="ml-auto rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
             >
@@ -474,6 +478,38 @@ export function LiveDocument({
   basePath: string;
   activeSnapshotId: string | null;
 }) {
+  // Deliberately kept HERE, not inside CollaborativeEditor: this component
+  // is above <ClientSideSuspense>, so it isn't remounted by whatever
+  // happens to the Liveblocks-dependent tree beneath it (a thread arriving
+  // over the websocket, a reconnect, etc. — see the comment on
+  // CollaborativeEditor). Snapshot state kept below that boundary was the
+  // real reason the "最後儲存於" timestamp could revert to a stale value
+  // after appearing to save correctly.
+  const [snapshots, setSnapshots] = useState<SnapshotInfo[]>(initialSnapshots);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Liveblocks' own client SDK can throw an unhandled promise rejection
+  // while resolving a thread it just heard about over its websocket
+  // ("There was an error while getting thread th_...") — this happens
+  // entirely inside node_modules/@liveblocks, is not something our own
+  // code triggers or can catch with a normal try/catch, and the SDK
+  // resyncs on its own right after (confirmed: the AI feedback that
+  // triggered it still showed up correctly). Left unhandled, Next's dev
+  // overlay treats it as a crash. This only silences that one specific,
+  // already-recovered-from error message — anything else still surfaces
+  // normally.
+  useEffect(() => {
+    function handleRejection(event: PromiseRejectionEvent) {
+      const message = event.reason?.message || "";
+      if (message.includes("error while getting thread")) {
+        console.warn("[Liveblocks] transient thread-fetch error, ignored (SDK self-recovers):", message);
+        event.preventDefault();
+      }
+    }
+    window.addEventListener("unhandledrejection", handleRejection);
+    return () => window.removeEventListener("unhandledrejection", handleRejection);
+  }, []);
+
   return (
     <LiveblocksProvider
       authEndpoint="/api/liveblocks-auth"
@@ -491,9 +527,12 @@ export function LiveDocument({
           <CollaborativeEditor
             onSaveSnapshot={onSaveSnapshot}
             onRequestAIFeedback={onRequestAIFeedback}
-            initialSnapshots={initialSnapshots}
+            snapshots={snapshots}
+            onSnapshotSaved={(snapshot) => setSnapshots((prev) => [snapshot, ...prev])}
             basePath={basePath}
             activeSnapshotId={activeSnapshotId}
+            saveError={saveError}
+            onSaveErrorChange={setSaveError}
           />
         </ClientSideSuspense>
       </RoomProvider>

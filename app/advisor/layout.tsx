@@ -7,6 +7,7 @@ const NAV = [
   { href: "/advisor", label: "本週關注" },
   { href: "/advisor/students", label: "學生總覽" },
   { href: "/advisor/prompts", label: "發想與大綱" },
+  { href: "/advisor/portfolio", label: "學習檔案" },
 ];
 
 export default async function AdvisorLayout({
