@@ -1,8 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { ProfileAssessmentPanel } from "@/components/ProfileAssessmentPanel";
+import type { SavedAssessment } from "@/app/actions/profile-assessment";
 
 const SECTIONS = [
   { href: "/student/portfolio/grades", label: "成績", desc: "高二、高三各科成績", ready: true },
+  { href: "/student/portfolio/testing", label: "測驗成績", desc: "AP、語言測驗、SAT/ACT 等", ready: true },
   { href: "/student/portfolio/activities", label: "課外活動", desc: "社團、學術活動等", ready: true },
   { href: "/student/portfolio/sports", label: "運動", desc: "校隊、個人運動項目", ready: true },
   { href: "/student/portfolio/awards", label: "獎項與榮譽", desc: "競賽、獎學金等", ready: true },
@@ -20,6 +23,11 @@ export default async function StudentPortfolioPage() {
     .select("id", { count: "exact", head: true })
     .eq("student_id", user!.id);
 
+  const { count: testingCount } = await supabase
+    .from("student_test_scores")
+    .select("id", { count: "exact", head: true })
+    .eq("student_id", user!.id);
+
   const { data: activityRows } = await supabase
     .from("student_activities")
     .select("category")
@@ -30,11 +38,24 @@ export default async function StudentPortfolioPage() {
   }
   const COUNT_BY_HREF: Record<string, number> = {
     "/student/portfolio/grades": gradesCount ?? 0,
+    "/student/portfolio/testing": testingCount ?? 0,
     "/student/portfolio/activities": activityCounts["extracurricular"] || 0,
     "/student/portfolio/sports": activityCounts["sport"] || 0,
     "/student/portfolio/awards": activityCounts["award"] || 0,
     "/student/portfolio/service": activityCounts["service"] || 0,
   };
+
+  const { data: assessmentRows } = await supabase
+    .from("profile_assessments")
+    .select("id, content, created_at, requester:profiles!requested_by(display_name)")
+    .eq("student_id", user!.id)
+    .order("created_at", { ascending: false });
+  const assessmentHistory: SavedAssessment[] = (assessmentRows || []).map((a: any) => ({
+    id: a.id,
+    content: a.content,
+    createdAt: a.created_at,
+    requestedByName: a.requester?.display_name || "使用者",
+  }));
 
   return (
     <div>
@@ -59,14 +80,7 @@ export default async function StudentPortfolioPage() {
         ))}
       </div>
 
-      <div className="mt-8 rounded-xl border border-brand/20 bg-brand-tint p-5">
-        <h2 className="font-display font-bold text-base mb-2">🤖 AI 綜合評估</h2>
-        <p className="text-sm text-ink mb-1">
-          完成上方所有項目後，AI 會綜合你的成績、活動與正在準備的文書，提供加強建議、適合的學校方向，以及每所學校的
-          機會等級（衝刺 / 目標 / 保底）。
-        </p>
-        <p className="text-xs text-slate">此功能將於下一批次推出 — 上方五個子頁面現在都可以開始填寫了。</p>
-      </div>
+      <ProfileAssessmentPanel studentId={user!.id} initialHistory={assessmentHistory} />
     </div>
   );
 }

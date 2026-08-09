@@ -16,6 +16,13 @@
 // ai_feedback_log.
 export const MONTHLY_ESSAY_FEEDBACK_LIMIT = 20;
 
+// AI 綜合評估 (profile assessment, Batch 9.16) is a much heavier call
+// than a single essay's feedback — it reads across a student's entire
+// grades/tests/activities/essays in one go — so the cap is deliberately
+// much lower. Same "starting guess, not researched" caveat as the essay
+// cap above.
+export const MONTHLY_PROFILE_ASSESSMENT_LIMIT = 5;
+
 // Existing brainstorming cap (Batch 9.9) — was a local const inside
 // app/actions/brainstorm.ts, which was fine there since it was never
 // exported. Left as-is; only pulling the essay-feedback one out here since

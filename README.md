@@ -2,6 +2,70 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 9.16 — AI 綜合評估, 測驗成績 section, date-order fix, international school Chinese names
+
+### (1) International schools now have Chinese names
+Loaded from `International_Schools_English_Chinese.csv` (your MOE .doc source), matched against the 22
+English-only entries from Batch 9.13. Also fixed one carried-over typo ("American Schoolin Taichung" →
+"American School in Taichung", confirmed by your new source) and added 臺北伯大尼美國學校 / Taipei Bethany
+American School, which was in your new source but wasn't one of the original 22. Four schools from Batch
+9.13 aren't in your new source (Asia American International Academy, Hsinchu County American School,
+Morrison Academy – New Taipei City, Taoyuan American School) and are left as-is — still English-only until
+a Chinese name turns up for those specifically. Run `supabase/batch9_14_school_chinese_names.sql`.
+
+### (2) New: 測驗成績 (Testing) section — one page, four subsections
+🎓 AP 考試, 🗣️ 語言測驗, 📝 大學入學測驗, 📋 其他考試 — all visible on one page as you asked, so nothing's
+hidden behind a tab a student might miss. Every subsection allows unlimited duplicate entries (retakes are
+normal, not an error) and has its own independent save button.
+
+- **AP**: exam names are a dropdown of all 43 official current AP subjects from
+  apcentral.collegeboard.org/courses, with "其他" as a fallback for anything retired/not yet listed.
+  **Confirmed AP is scored 1–5, not 7** — your instinct to double-check was right to have; 7 isn't an AP
+  scale at all (that's closer to IB, which scores each subject 1–7). Score field has a "1–5" hint but
+  isn't hard-validated, since exact score formats can have edge cases worth allowing through.
+- **Language testing**: IELTS (Academic/General), TOEFL iBT, Duolingo English Test, Pearson PTE Academic,
+  Cambridge C1/C2, CELPIP, OET — from the ieltsbuddy.com list you linked, plus IELTS itself.
+- **Admissions testing**: SAT, ACT, PSAT/NMSQT, "其他".
+- **Other**: free text throughout, no preset list.
+
+Run `supabase/batch9_15_testing_section.sql` — new `student_test_scores` table, RLS matching the rest of
+學習檔案.
+
+### (3) End-date-before-start-date — fixed, both visually and at save
+Added to the four activity sections (課外活動/運動/獎項與榮譽/志工與工讀 — awards only have a single date
+so this doesn't apply there). A row with an end date earlier than its start date now shows an inline red
+warning right under the date fields, AND can't actually be saved — the save button checks every row first
+and refuses if any date range is backwards, with the same check repeated server-side as a backstop. No
+schema change needed, just validation logic (`lib/date-range.ts`, shared between the editor and the server
+action).
+
+### (4) AI 綜合評估 — built and live
+New panel on the 學習檔案 main page (all 3 portals). Reads across a student's grades, test scores,
+activities, and in-progress essay applications, and produces four sections: overall strengths/gaps with
+concrete improvement suggestions, suggested school/program directions, a 衝刺/目標/保底 (Reach/Target/
+Likely) tier for each school the student already has an essay in progress for — **never a numeric
+percentage**, per your instruction — and a clearly-worded reminder that this is a rough, self-reported-data
+estimate, not a professional prediction or guarantee.
+
+Generating and saving are two separate steps, same as brainstorming and essay feedback: "✨ 產生新的評估"
+shows a preview first, "💾 儲存這份評估" is what actually timestamps and archives it. Saved assessments are
+browsable via a dropdown (newest first), same pattern as SnapshotHistory/BrainstormSessionArchive.
+
+**Usage cap**: 5 assessments per student per rolling 30 days — much lower than the essay-feedback cap
+(20/30 days) since this reads across the entire profile in one call rather than a single essay, so it's
+both a heavier prompt and something a student has much less reason to run repeatedly. Same "starting guess,
+not researched" caveat as the other caps. Logged in a new `profile_assessment_log` table, separate from
+`ai_feedback_log` — kept distinct rather than merged, since the eventual real credit system (still TBD, per
+items 5/6 from a few batches back) will need to see these as different kinds of usage regardless.
+
+Run `supabase/batch9_16_profile_assessment.sql` — new `profile_assessments` (saved results) and
+`profile_assessment_log` (usage cap) tables.
+
+### Files to run, in order
+1. `supabase/batch9_14_school_chinese_names.sql`
+2. `supabase/batch9_15_testing_section.sql`
+3. `supabase/batch9_16_profile_assessment.sql`
+
 ## 🆕 Batch 9.13 — 學習檔案 complete: activities/sports/awards/service + official Taiwan school data
 
 ### (1) Sports / Extracurriculars / Awards / Volunteering — live now

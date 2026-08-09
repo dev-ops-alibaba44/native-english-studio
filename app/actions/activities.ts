@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { hasInvalidDateRange } from "@/lib/date-range";
 
 export type ActivityCategory = "extracurricular" | "sport" | "award" | "service";
 
@@ -53,6 +54,9 @@ export async function saveActivitiesForCategory(
     const hours = row.hours_per_week === "" ? null : Number(row.hours_per_week);
     if (hours !== null && (!Number.isFinite(hours) || hours < 0 || hours > 168)) {
       return { success: false, error: "invalid_hours" };
+    }
+    if (category !== "award" && hasInvalidDateRange(row.start_month, row.start_year, row.end_month, row.end_year)) {
+      return { success: false, error: "invalid_date_range" };
     }
   }
 

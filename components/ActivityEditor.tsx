@@ -7,6 +7,7 @@ import {
   type ActivityRowInput,
   type SavedActivityRow,
 } from "@/app/actions/activities";
+import { hasInvalidDateRange } from "@/lib/date-range";
 
 const MAX_WORDS = 50;
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
@@ -125,6 +126,14 @@ export function ActivityEditor({
   }
 
   async function handleSave() {
+    // Checked here rather than only relying on the visible per-row
+    // warning, so a row with an end date before its start date can never
+    // actually be saved even if the warning went unnoticed.
+    const hasBadDates = rows.some((r) => hasInvalidDateRange(r.start_month, r.start_year, r.end_month, r.end_year));
+    if (hasBadDates) {
+      setSaveState("error");
+      return;
+    }
     setSaveState("saving");
     const result = await saveActivitiesForCategory(studentId, category, rows);
     if (!result.success) {
@@ -140,6 +149,7 @@ export function ActivityEditor({
       <div className="flex flex-col gap-4">
         {rows.map((row) => {
           const words = wordCount(row.description);
+          const dateError = showEndDate && hasInvalidDateRange(row.start_month, row.start_year, row.end_month, row.end_year);
           return (
             <div key={row.key} className="rounded-xl border border-line bg-surface shadow-card p-4">
               <div className="flex items-start justify-between gap-3 mb-3">
@@ -174,7 +184,7 @@ export function ActivityEditor({
                 </button>
               </div>
 
-              <div className="flex flex-wrap gap-4 mb-3">
+              <div className="flex flex-wrap items-start gap-4 mb-3">
                 {showEndDate ? (
                   <>
                     <MonthYearPicker
@@ -183,12 +193,17 @@ export function ActivityEditor({
                       year={row.start_year}
                       onChange={(m, y) => updateRow(row.key, { start_month: m, start_year: y })}
                     />
-                    <MonthYearPicker
-                      label="結束（若持續中可留空）"
-                      month={row.end_month}
-                      year={row.end_year}
-                      onChange={(m, y) => updateRow(row.key, { end_month: m, end_year: y })}
-                    />
+                    <div>
+                      <MonthYearPicker
+                        label="結束（若持續中可留空）"
+                        month={row.end_month}
+                        year={row.end_year}
+                        onChange={(m, y) => updateRow(row.key, { end_month: m, end_year: y })}
+                      />
+                      {dateError && (
+                        <p className="text-xs text-danger mt-1 max-w-[10rem]">結束日期不能早於開始日期</p>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <MonthYearPicker
@@ -253,7 +268,9 @@ export function ActivityEditor({
         {saveState === "saving" && <span className="text-xs text-slate">儲存中…</span>}
         {saveState === "saved" && <span className="text-xs text-good">已儲存 ✓</span>}
         {saveState === "error" && (
-          <span className="text-xs text-danger">儲存失敗，請確認每項描述在 50 字以內，稍後再試。</span>
+          <span className="text-xs text-danger">
+            儲存失敗，請確認每項的結束日期不早於開始日期，且描述在 50 字以內。
+          </span>
         )}
       </div>
     </div>
