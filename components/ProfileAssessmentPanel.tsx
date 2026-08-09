@@ -36,6 +36,7 @@ export function ProfileAssessmentPanel({
   initialHistory: SavedAssessment[];
 }) {
   const [draft, setDraft] = useState<string | null>(null);
+  const [draftIsCached, setDraftIsCached] = useState<string | null>(null); // holds the "as of" timestamp when the draft is a reused result, else null
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +53,11 @@ export function ProfileAssessmentPanel({
       return;
     }
     setDraft(result.content);
+    // If the underlying profile data hasn't changed since last time, the
+    // server hands back the previous result instead of spending a new AI
+    // call — this just surfaces that plainly rather than pretending a
+    // fresh evaluation just ran.
+    setDraftIsCached(result.cached ? result.cachedAt : null);
   }
 
   async function handleSave() {
@@ -66,6 +72,7 @@ export function ProfileAssessmentPanel({
     setHistory((prev) => [result.assessment, ...prev]);
     setSelectedHistoryId(result.assessment.id);
     setDraft(null);
+    setDraftIsCached(null);
   }
 
   const selected = history.find((h) => h.id === selectedHistoryId) || null;
@@ -91,6 +98,12 @@ export function ProfileAssessmentPanel({
 
       {draft && (
         <div className="mt-4 rounded-lg border border-line bg-surface p-4">
+          {draftIsCached && (
+            <p className="text-xs text-slate mb-3 rounded bg-line/40 px-2 py-1.5">
+              📌 自 {formatDate(draftIsCached)}
+              以來，已儲存的成績、測驗成績、活動與文書資料都沒有變動，因此顯示的是上次產生的結果，沒有另外消耗 AI 評估次數。更新任一項資料並儲存後，下次產生就會是全新的評估。
+            </p>
+          )}
           <p className="whitespace-pre-wrap text-sm text-ink leading-relaxed">{draft}</p>
           <div className="flex items-center gap-3 mt-3">
             <button

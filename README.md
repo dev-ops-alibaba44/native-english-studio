@@ -2,6 +2,68 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 9.17 — hard caps on test scores, AI usage simplified, no more paying for identical re-runs
+
+### (1) Bug fix: 測驗成績 (Testing) scores can no longer be entered outside the exam's real scale
+You could previously type "12.5" into an IELTS field (real scale: 0–9) or "1139999" into TOEFL iBT (real
+scale: 0–120) or "42" into ACT (real scale: 1–36) — the score field had a hint text next to it but nothing
+was actually enforcing it. New `lib/exam-score-bounds.ts` holds the real, sourced scale for every exam in
+the Testing section (AP 1–5, IELTS 0–9 in half-point steps, TOEFL iBT 0–120, Duolingo 10–160 in steps of 5,
+Pearson PTE 10–90, Cambridge C1/C2 80–230, CELPIP 0–12, OET 0–500 in steps of 10, SAT 400–1600 in steps of
+10, ACT 1–36, PSAT/NMSQT 320–1520), plus a generic 0–9999 fallback for freeform "其他" entries where the
+real scale isn't known. Same three-layer validation pattern as the Grades page fix from a few batches back:
+rejects the keystroke as you type (so "1139999" is never actually typeable into a TOEFL field), re-checks
+on blur, and re-checks server-side as a final backstop before anything is saved. Also: switching an entry
+from one exam to another (e.g. TOEFL iBT → IELTS Academic) now clears the score if the old value doesn't
+fit the new exam's scale, instead of silently leaving a now-invalid number sitting there — same bug class
+as the Grades page's "switching scale shows the old out-of-range number" fix. The old `SCORE_HINTS` table
+(display-only, not enforced) is gone; the hint text shown next to each score field now comes from the same
+bounds table that actually enforces it, so the two can't drift apart again.
+
+No schema change — this is validation logic only, nothing to run in Supabase for this part.
+
+### (2) AI 綜合評估: re-running with no changes no longer costs anything
+Real-world case from your testing: generating an assessment, then immediately regenerating it with zero
+changes to grades/test scores/activities, cost a second nearly-identical AI call (and a second slot of the
+monthly cap) for a result that correctly came out about the same both times. The server now hashes exactly
+the profile data it's about to send to Claude; if that hash matches your last generate, it hands back that
+same result immediately — no new API call, no new cap usage, no charge. The moment you actually change and
+save any grade, test score, activity, or application, the hash changes and the next click generates a
+genuinely new assessment. This is deliberately not a block or a nag — you can click "產生新的評估" as often
+as you like; it just won't cost anything when there's nothing new to say. When a cached result is shown,
+there's a small note under the button saying so (with the timestamp of when it was actually generated).
+
+Run `supabase/batch9_17_profile_assessment_cache.sql` — adds `input_hash` and `content` columns to
+`profile_assessment_log`. Existing rows get `null` in both, which is fine: the very next generate for any
+student just runs for real once, then caching kicks in from there.
+
+### (3) AI usage gauges on `/student/account` — collapsed into one plain-language line
+Your feedback: three separate gauges (brainstorming/essay feedback/profile assessment), each on a different
+reset schedule, is more than a student should have to track just to answer "can I still use the AI stuff."
+The account page now shows one line — "AI 使用量正常" / "...其中一項即將達到上限" / "...已達使用上限" — with
+a "查看個別用量" toggle that expands to the three original detailed gauges for anyone who wants the
+breakdown. New `components/AiUsageOverview.tsx`; the three underlying caps/log tables are **unchanged** —
+still deliberately separate (not merged into one shared number), per the existing plan to fold them into a
+real credit ledger later without needing to unwind a premature merge first. This also means the profile-
+assessment cap (5/30 days, built in Batch 9.16) is now actually visible somewhere — it had a real
+server-side limit this whole time but nothing ever showed it to a student.
+
+### Files to run, in order
+1. `supabase/batch9_17_profile_assessment_cache.sql`
+
+## 🩹 Batch 9.14 hotfix — school-merge collision fix (delivered separately, documented here for the record)
+The original Batch 9.14 SQL failed with `duplicate key value violates unique constraint
+taiwan_high_schools_name_zh_key` — six schools from the Batch 9.13 official import turned out to be the same
+real-world schools as six hand-typed entries already sitting in the table from Batch 9.12, just under a
+different name_zh string (9.12 guessed a Chinese name up front; 9.13's MOE source had no Chinese name at
+all, so it used the English name as a placeholder). Renaming the 9.13 row to the real Chinese name then
+collided head-on with the 9.12 row already sitting on that exact string. Fixed by merging each duplicate
+pair into one row before renaming — re-pointing any student's existing school selection and any
+course-usage counts to the surviving row first, so nothing already on file silently disappears — then
+proceeding with the renames as originally intended. The corrected `supabase/batch9_14_school_chinese_names.sql`
+in this zip already has the fix baked in; if you already ran the original failed version, running this one
+is still safe (every step checks before acting).
+
 ## 🆕 Batch 9.16 — AI 綜合評估, 測驗成績 section, date-order fix, international school Chinese names
 
 ### (1) International schools now have Chinese names

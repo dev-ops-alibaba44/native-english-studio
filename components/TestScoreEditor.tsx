@@ -7,11 +7,30 @@ import {
   type TestScoreRowInput,
   type SavedTestScoreRow,
 } from "@/app/actions/test-scores";
-import { OTHER_OPTION, SCORE_HINTS } from "@/lib/exam-options";
+import { OTHER_OPTION } from "@/lib/exam-options";
+import { getScoreBounds, isValidTestScore } from "@/lib/exam-score-bounds";
 
 const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
 const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR + 1 - 2015 + 1 }, (_, i) => 2015 + i).reverse();
+
+// Slightly more permissive than isValidTestScore: allows the in-progress
+// states a person types through on the way to a valid number ("1", "11",
+// "113") without ever accepting something that's already over the
+// exam's max — this is what actually stops "1139999" from being typeable
+// into a 0–120 TOEFL field in the first place, rather than just failing
+// quietly at save time. isValidTestScore itself (checked on blur, and
+// again server-side) is the final, authoritative check, including the
+// minimum and the increment (e.g. IELTS half-points, SAT/OET tens).
+function isValidPartialScore(category: string, examName: string, raw: string): boolean {
+  if (raw === "") return true;
+  if (!/^\d*\.?\d*$/.test(raw)) return false; // digits and at most one dot — blocks letters entirely
+  const numPart = raw.endsWith(".") ? raw.slice(0, -1) : raw;
+  if (numPart === "") return true; // just "." so far
+  const num = Number(numPart);
+  const { max } = getScoreBounds(category, examName);
+  return Number.isFinite(num) && num <= max;
+}
 
 type EditableRow = TestScoreRowInput & { key: string; usingCustomName: boolean };
 
@@ -84,7 +103,8 @@ export function TestScoreEditor({
 
       <div className="flex flex-col gap-3">
         {rows.map((row) => {
-          const hint = SCORE_HINTS[row.exam_name];
+          const bounds = getScoreBounds(category, row.exam_name);
+          const hint = bounds.hint;
           return (
             <div key={row.key} className="rounded-lg border border-line p-3">
               <div className="flex flex-wrap items-end gap-3">
@@ -95,9 +115,24 @@ export function TestScoreEditor({
                       value={row.exam_name}
                       onChange={(e) => {
                         if (e.target.value === OTHER_OPTION) {
+                          // Custom exam names fall back to a wide generic
+                          // range, so an existing score always stays valid
+                          // — no need to clear it here.
                           updateRow(row.key, { usingCustomName: true, exam_name: "" });
                         } else {
-                          updateRow(row.key, { exam_name: e.target.value });
+                          // Switching between two presets with different
+                          // scales (e.g. TOEFL iBT -> IELTS Academic) can
+                          // leave a score that's out of range for the new
+                          // exam ("110" is valid for TOEFL but not IELTS).
+                          // Same bug class as the Grades page's "switching
+                          // scale shows the old out-of-range number" —
+                          // clear it instead of silently keeping a value
+                          // that's now invalid for what's actually selected.
+                          const stillValid = isValidTestScore(category, e.target.value, row.score);
+                          updateRow(row.key, {
+                            exam_name: e.target.value,
+                            score: stillValid ? row.score : "",
+                          });
                         }
                       }}
                       className="rounded border border-line px-2 py-1.5 text-sm text-ink"
@@ -159,8 +194,24 @@ export function TestScoreEditor({
                   成績{hint && <span className="text-slate/70">（{hint}）</span>}
                   <input
                     type="text"
+                    inputMode="decimal"
                     value={row.score}
-                    onChange={(e) => updateRow(row.key, { score: e.target.value })}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      // Reject the keystroke outright if it would already be
+                      // invalid (non-numeric, or over this exam's max) — this
+                      // is what actually stops "1139999" from being typeable
+                      // into a 0–120 TOEFL field, rather than just failing
+                      // quietly at save time.
+                      if (isValidPartialScore(category, row.exam_name, next)) updateRow(row.key, { score: next });
+                    }}
+                    onBlur={(e) => {
+                      // Clean up trailing-dot states and anything that still
+                      // isn't fully valid (wrong increment, e.g. "7.3" for an
+                      // IELTS half-point scale) once typing has stopped.
+                      const cleaned = e.target.value.replace(/\.$/, "");
+                      updateRow(row.key, { score: isValidTestScore(category, row.exam_name, cleaned) ? cleaned : "" });
+                    }}
                     className="rounded border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-brand w-24"
                   />
                 </label>
@@ -197,7 +248,9 @@ export function TestScoreEditor({
         </button>
         {saveState === "saving" && <span className="text-xs text-slate">儲存中…</span>}
         {saveState === "saved" && <span className="text-xs text-good">已儲存 ✓</span>}
-        {saveState === "error" && <span className="text-xs text-danger">儲存失敗，請稍後再試。</span>}
+        {saveState === "error" && (
+          <span className="text-xs text-danger">儲存失敗，請確認每筆成績都在有效範圍內，稍後再試。</span>
+        )}
       </div>
     </div>
   );

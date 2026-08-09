@@ -1,9 +1,14 @@
 "use server";
 
+import { createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL } from "@/lib/anthropic";
 import { MONTHLY_PROFILE_ASSESSMENT_LIMIT } from "@/lib/ai-limits";
+
+function hashProfileSummary(summary: string): string {
+  return createHash("sha256").update(summary).digest("hex");
+}
 
 function periodStart(): Date {
   const d = new Date();
@@ -110,7 +115,11 @@ function buildProfileSummary(profile: {
 
 export async function generateProfileAssessment(
   studentId: string
-): Promise<{ success: true; content: string } | { success: false; error: string }> {
+): Promise<
+  | { success: true; content: string; cached: false }
+  | { success: true; content: string; cached: true; cachedAt: string }
+  | { success: false; error: string }
+> {
   if (!process.env.ANTHROPIC_API_KEY) {
     return { success: false, error: "ai_not_configured" };
   }
@@ -131,9 +140,6 @@ export async function generateProfileAssessment(
     .eq("id", studentId)
     .maybeSingle();
   if (!studentProfile) return { success: false, error: "not_authorized" };
-
-  const { used, limit } = await getProfileAssessmentUsage(studentId);
-  if (used >= limit) return { success: false, error: "monthly_limit_reached" };
 
   const [{ data: academicConfig }, { data: grades }, { data: testScores }, { data: activities }, { data: applications }] =
     await Promise.all([
@@ -160,6 +166,28 @@ export async function generateProfileAssessment(
     activities: activities || [],
     applications: (applications || []) as any[],
   });
+  const inputHash = hashProfileSummary(summary);
+
+  // If nothing in the underlying profile has changed since the student's
+  // last generate, don't spend a real AI call (or a slot of their
+  // monthly cap) on a result that will just say the same thing again —
+  // hand back the previous one instead. The cap check below only runs
+  // for a genuinely new generation.
+  const admin = createAdminClient();
+  const { data: lastLog } = await admin
+    .from("profile_assessment_log")
+    .select("input_hash, content, created_at")
+    .eq("student_id", studentId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (lastLog?.input_hash && lastLog.input_hash === inputHash && lastLog.content) {
+    return { success: true, content: lastLog.content, cached: true, cachedAt: lastLog.created_at };
+  }
+
+  const { used, limit } = await getProfileAssessmentUsage(studentId);
+  if (used >= limit) return { success: false, error: "monthly_limit_reached" };
 
   let assessmentText: string;
   let inputTokens: number | null = null;
@@ -234,7 +262,6 @@ export async function generateProfileAssessment(
   }
 
   try {
-    const admin = createAdminClient();
     await admin.from("profile_assessment_log").insert({
       student_id: studentId,
       requested_by: user.id,
@@ -243,12 +270,14 @@ export async function generateProfileAssessment(
       output_tokens: outputTokens,
       cache_creation_tokens: cacheCreationTokens,
       cache_read_tokens: cacheReadTokens,
+      input_hash: inputHash,
+      content: assessmentText,
     });
   } catch (err) {
     console.error("generateProfileAssessment: failed to log usage", err);
   }
 
-  return { success: true, content: assessmentText };
+  return { success: true, content: assessmentText, cached: false };
 }
 
 export interface SavedAssessment {

@@ -70,17 +70,8 @@ export const ADMISSIONS_EXAM_OPTIONS = ["SAT", "ACT", "PSAT/NMSQT"];
 
 export const OTHER_OPTION = "其他（自行輸入）";
 
-// Shown as a placeholder hint next to the score field — not enforced,
-// since scores can legitimately be reported in slightly different forms
-// (e.g. a superscore vs a single-sitting score).
-export const SCORE_HINTS: Record<string, string> = {
-  "AP": "1–5",
-  "IELTS Academic": "0–9（可含 0.5）",
-  "IELTS General Training": "0–9（可含 0.5）",
-  "TOEFL iBT": "0–120",
-  "Duolingo English Test": "10–160",
-  "Pearson PTE Academic": "10–90",
-  "SAT": "400–1600",
-  "ACT": "1–36",
-  "PSAT/NMSQT": "320–1520",
-};
+// Score bounds (hint text AND the actual enforced min/max/increment)
+// moved to lib/exam-score-bounds.ts as of Batch 9.17 — that file is the
+// single source of truth for both what's displayed and what's enforced,
+// so the two can never drift apart the way a separate "hint-only, not
+// enforced" table could.

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { isValidTestScore } from "@/lib/exam-score-bounds";
 
 export type TestCategory = "ap" | "language" | "admissions" | "other";
 
@@ -32,6 +33,18 @@ export async function saveTestScoresForCategory(
   const cleanRows = rows
     .map((r) => ({ ...r, exam_name: r.exam_name.trim(), score: r.score.trim() }))
     .filter((r) => r.exam_name.length > 0);
+
+  // Final backstop, same reasoning as grades.ts: the client already
+  // blocks out-of-range values at the keystroke, but a request could in
+  // principle bypass that, so this is the last line of defense before
+  // anything hits the database. Rejects the whole save rather than
+  // silently dropping/clearing the bad cell, so the student can see and
+  // fix it instead of losing data they thought was saved.
+  for (const row of cleanRows) {
+    if (!isValidTestScore(category, row.exam_name, row.score)) {
+      return { success: false, error: "invalid_score_value" };
+    }
+  }
 
   const { error: deleteError } = await supabase
     .from("student_test_scores")
