@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { isValidTestScore } from "@/lib/exam-score-bounds";
 
-export type TestCategory = "ap" | "language" | "admissions" | "other";
+export type TestCategory = "ap" | "ib" | "language" | "admissions" | "other";
 
 export interface TestScoreRowInput {
   exam_name: string;

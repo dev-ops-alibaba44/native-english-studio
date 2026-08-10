@@ -62,10 +62,17 @@ function buildProfileSummary(profile: {
   }
 
   if (profile.testScores.length > 0) {
+    const TEST_CAT_LABEL: Record<string, string> = {
+      ap: "AP",
+      ib: "IB",
+      language: "語言測驗",
+      admissions: "大學入學測驗",
+      other: "其他考試",
+    };
     let block = "【測驗成績】\n";
     for (const t of profile.testScores) {
       const date = t.test_month && t.test_year ? `${t.test_year}/${t.test_month}` : "日期未填";
-      block += `- [${t.category}] ${t.exam_name}（${date}）：${t.score || "未填成績"}\n`;
+      block += `- [${TEST_CAT_LABEL[t.category] || t.category}] ${t.exam_name}（${date}）：${t.score || "未填成績"}\n`;
     }
     sections.push(block.trim());
   } else {

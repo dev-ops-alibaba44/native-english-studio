@@ -15,21 +15,34 @@ const CURRENT_YEAR = new Date().getFullYear();
 const YEARS = Array.from({ length: CURRENT_YEAR + 1 - 2015 + 1 }, (_, i) => 2015 + i).reverse();
 
 // Slightly more permissive than isValidTestScore: allows the in-progress
-// states a person types through on the way to a valid number ("1", "11",
-// "113") without ever accepting something that's already over the
-// exam's max — this is what actually stops "1139999" from being typeable
-// into a 0–120 TOEFL field in the first place, rather than just failing
-// quietly at save time. isValidTestScore itself (checked on blur, and
-// again server-side) is the final, authoritative check, including the
-// minimum and the increment (e.g. IELTS half-points, SAT/OET tens).
+// states a person types through on the way to a valid value without ever
+// accepting something that's already out of bounds — this is what
+// actually stops "1139999" from being typeable into a 0–120 TOEFL field
+// in the first place, rather than just failing quietly at save time.
+// isValidTestScore itself (checked on blur, and again server-side) is
+// the final, authoritative check, including the minimum and the
+// increment (e.g. IELTS half-points, SAT/OET tens) for numeric scores,
+// and the exact letter set for letter-graded ones (IB's EE/TOK).
 function isValidPartialScore(category: string, examName: string, raw: string): boolean {
   if (raw === "") return true;
+  const bounds = getScoreBounds(category, examName);
+
+  if (bounds.kind === "free") return raw.length <= 40;
+
+  if (bounds.kind === "letter") {
+    // Typed one character at a time — just check it's a prefix of
+    // something valid (a single letter from the allowed set, typed in
+    // either case; blur normalizes to uppercase).
+    if (raw.length > 1) return false;
+    return (bounds.letterOptions || []).some((opt) => opt.toLowerCase() === raw.toLowerCase());
+  }
+
+  // numeric
   if (!/^\d*\.?\d*$/.test(raw)) return false; // digits and at most one dot — blocks letters entirely
   const numPart = raw.endsWith(".") ? raw.slice(0, -1) : raw;
   if (numPart === "") return true; // just "." so far
   const num = Number(numPart);
-  const { max } = getScoreBounds(category, examName);
-  return Number.isFinite(num) && num <= max;
+  return Number.isFinite(num) && num <= (bounds.max ?? Infinity);
 }
 
 type EditableRow = TestScoreRowInput & { key: string; usingCustomName: boolean };
@@ -194,22 +207,25 @@ export function TestScoreEditor({
                   成績{hint && <span className="text-slate/70">（{hint}）</span>}
                   <input
                     type="text"
-                    inputMode="decimal"
+                    inputMode={bounds.kind === "numeric" ? "decimal" : "text"}
                     value={row.score}
                     onChange={(e) => {
                       const next = e.target.value;
                       // Reject the keystroke outright if it would already be
-                      // invalid (non-numeric, or over this exam's max) — this
-                      // is what actually stops "1139999" from being typeable
-                      // into a 0–120 TOEFL field, rather than just failing
-                      // quietly at save time.
+                      // invalid (non-numeric/over-max for a numeric scale, or
+                      // not a valid letter for a lettered one) — this is what
+                      // actually stops "1139999" from being typeable into a
+                      // 0–120 TOEFL field, rather than just failing quietly
+                      // at save time.
                       if (isValidPartialScore(category, row.exam_name, next)) updateRow(row.key, { score: next });
                     }}
                     onBlur={(e) => {
-                      // Clean up trailing-dot states and anything that still
-                      // isn't fully valid (wrong increment, e.g. "7.3" for an
-                      // IELTS half-point scale) once typing has stopped.
-                      const cleaned = e.target.value.replace(/\.$/, "");
+                      // Clean up trailing-dot states (numeric), normalize
+                      // case (letter), and clear anything that still isn't
+                      // fully valid once typing has stopped.
+                      let cleaned = e.target.value.trim();
+                      if (bounds.kind === "numeric") cleaned = cleaned.replace(/\.$/, "");
+                      if (bounds.kind === "letter") cleaned = cleaned.toUpperCase();
                       updateRow(row.key, { score: isValidTestScore(category, row.exam_name, cleaned) ? cleaned : "" });
                     }}
                     className="rounded border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-brand w-24"

@@ -52,6 +52,75 @@ export const AP_EXAM_OPTIONS = [
   "AP Networking",
 ];
 
+// Official IB Diploma Programme subject list (6 subject groups, each
+// offered at HL and SL — see https://www.ibo.org/programmes/diploma-programme/curriculum/
+// for the current group structure) plus the three core requirements.
+// Extended Essay and Theory of Knowledge are graded A–E, not the 1–7
+// subject scale; CAS has no grade at all, just a completion record —
+// see lib/exam-score-bounds.ts for how each is validated. "其他" (added
+// automatically below by TestScoreEditor) covers school-based syllabi,
+// retired subjects, and anything else not on this list, plus lets a
+// student log any other IB-related project that isn't a graded
+// component at all.
+export const IB_EXAM_OPTIONS = [
+  // Group 1 — Studies in Language and Literature
+  "IB Language A: Literature (HL)",
+  "IB Language A: Literature (SL)",
+  "IB Language A: Language and Literature (HL)",
+  "IB Language A: Language and Literature (SL)",
+  // Group 2 — Language Acquisition
+  "IB Language B (HL)",
+  "IB Language B (SL)",
+  "IB Language ab initio (SL)",
+  // Group 3 — Individuals and Societies
+  "IB Business Management (HL)",
+  "IB Business Management (SL)",
+  "IB Economics (HL)",
+  "IB Economics (SL)",
+  "IB Geography (HL)",
+  "IB Geography (SL)",
+  "IB History (HL)",
+  "IB History (SL)",
+  "IB Psychology (HL)",
+  "IB Psychology (SL)",
+  "IB Global Politics (HL)",
+  "IB Global Politics (SL)",
+  "IB Philosophy (HL)",
+  "IB Philosophy (SL)",
+  // Group 4 — Sciences
+  "IB Biology (HL)",
+  "IB Biology (SL)",
+  "IB Chemistry (HL)",
+  "IB Chemistry (SL)",
+  "IB Physics (HL)",
+  "IB Physics (SL)",
+  "IB Computer Science (HL)",
+  "IB Computer Science (SL)",
+  "IB Environmental Systems and Societies (SL)",
+  "IB Sports, Exercise and Health Science (HL)",
+  "IB Sports, Exercise and Health Science (SL)",
+  // Group 5 — Mathematics
+  "IB Mathematics: Analysis and Approaches (HL)",
+  "IB Mathematics: Analysis and Approaches (SL)",
+  "IB Mathematics: Applications and Interpretation (HL)",
+  "IB Mathematics: Applications and Interpretation (SL)",
+  // Group 6 — The Arts
+  "IB Visual Arts (HL)",
+  "IB Visual Arts (SL)",
+  "IB Music (HL)",
+  "IB Music (SL)",
+  "IB Theatre (HL)",
+  "IB Theatre (SL)",
+  "IB Dance (HL)",
+  "IB Dance (SL)",
+  "IB Film (HL)",
+  "IB Film (SL)",
+  // Core requirements
+  "Extended Essay (EE)",
+  "Theory of Knowledge (TOK)",
+  "CAS（創意、活動、服務 / Creativity, Activity, Service）",
+];
+
 // Common IELTS alternatives / English proficiency tests used in college
 // applications, per ieltsbuddy.com's list plus IELTS itself.
 export const LANGUAGE_EXAM_OPTIONS = [

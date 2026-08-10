@@ -2,6 +2,27 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 9.18 — IB section added to 測驗成績 (Testing)
+
+New subsection, positioned between AP and language testing as requested: 🌐 IB 課程與核心項目. Same
+shape/UX as the other four Testing subsections (preset dropdown, "其他" fallback, unlimited retake rows,
+independent save), but IB needed two things the others didn't:
+
+- **A fourth exam-name-suffix pattern**: all ~50 preset entries are the official IB Diploma subjects across
+  the 6 subject groups, each listed twice as "(HL)" and "(SL)" (Higher/Standard Level — same subject, same
+  1–7 scale, different depth), since the current schema doesn't have a separate "level" column and doubling
+  the exam name keeps this a one-file addition rather than a schema change.
+- **Non-numeric scoring**: not everything in IB is a plain number. Extended Essay and Theory of Knowledge
+  are graded A–E; CAS (Creativity, Activity, Service) has no grade at all, just a completion record.
+  `lib/exam-score-bounds.ts` now supports three score *kinds* — numeric (unchanged from Batch 9.17), letter
+  (case-insensitive match against an allowed set, used for EE/TOK), and free (short text, used for CAS).
+  This also fixed a gap in 9.17: the generic "其他" fallback was digit-only, which silently rejected
+  entirely legitimate non-numeric scores for exams we don't have a specific scale for — it's "free" kind now
+  too, just with a length guard rather than a fake asserted scale.
+
+Run `supabase/batch9_18_ib_testing_section.sql` — widens the existing `category` check constraint on
+`student_test_scores` to allow `'ib'`; no new table.
+
 ## 🆕 Batch 9.17 — hard caps on test scores, AI usage simplified, no more paying for identical re-runs
 
 ### (1) Bug fix: 測驗成績 (Testing) scores can no longer be entered outside the exam's real scale

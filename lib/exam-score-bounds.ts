@@ -8,62 +8,97 @@
 // TOEFL iBT "1139999" (scale is 0–120), ACT "42" (scale is 1–36).
 //
 // Bounds below are the exams' actual official reporting scales,
-// confirmed via web search at time of writing (College Board, IELTS,
+// confirmed via web search at time of writing (College Board, IB, IELTS,
 // ETS/TOEFL, Duolingo, Pearson, Cambridge English, Paragon/CELPIP, OET
-// — see Batch 9.17 write-up for sources). Where an exam reports in fixed
-// increments (SAT/OET in 10s, Duolingo in 5s), that increment is
+// — see Batch 9.17/9.18 write-ups for sources). Where an exam reports in
+// fixed increments (SAT/OET in 10s, Duolingo in 5s), that increment is
 // enforced too, not just the min/max.
+//
+// Batch 9.18 (IB section): not every exam/component reports a plain
+// number. IB's Extended Essay and Theory of Knowledge are graded A–E;
+// CAS has no grade at all, just a completion record. Rather than force
+// those into the numeric shape, a score can now be one of three kinds —
+// see ScoreBounds below. This also fixes a gap from 9.17: the generic
+// fallback (used for "其他" and any custom-typed exam name) was
+// digit-only, which silently rejected entirely legitimate non-numeric
+// scores for tests we don't have a specific scale for (a pass/fail
+// result, a letter grade, "Level 5", etc.) — it's now "free" kind, only
+// guarding against absurdly long junk rather than asserting a scale we
+// don't actually know.
+
+export type ScoreKind = "numeric" | "letter" | "free";
 
 export interface ScoreBounds {
-  min: number;
-  max: number;
-  // Score must be a multiple of this (after subtracting min isn't
-  // required — all these scales start increments from a round number).
-  // Omit for "any decimal is fine within range" (not used currently,
-  // every known scale here has a fixed increment).
-  step: number;
+  kind: ScoreKind;
+  // numeric only
+  min?: number;
+  max?: number;
+  step?: number;
+  // letter only — score must case-insensitively match one of these
+  letterOptions?: string[];
   // Human-readable hint shown next to the input. Left undefined for the
-  // generic fallback bound so we don't assert false precision about a
+  // generic "free" fallback so we don't assert false precision about a
   // scale we don't actually know.
   hint?: string;
+}
+
+function numeric(min: number, max: number, step: number, hint: string): ScoreBounds {
+  return { kind: "numeric", min, max, step, hint };
+}
+
+function letter(options: string[], hint: string): ScoreBounds {
+  return { kind: "letter", letterOptions: options, hint };
 }
 
 // All current AP subjects share the same 1–5 scale (see AP_EXAM_OPTIONS
 // in lib/exam-options.ts) — applied by category, not by individual exam
 // name, since there'd otherwise be 43 identical entries below.
-export const AP_SCORE_BOUNDS: ScoreBounds = { min: 1, max: 5, step: 1, hint: "1–5" };
+export const AP_SCORE_BOUNDS: ScoreBounds = numeric(1, 5, 1, "1–5");
+
+// All standard IB subjects (both HL and SL — the IB grades them on the
+// same scale, just to a different depth) share the 1–7 scale. Applied by
+// category as the default; the two lettered core components override it
+// individually below.
+export const IB_SUBJECT_SCORE_BOUNDS: ScoreBounds = numeric(1, 7, 1, "1–7");
+
+const IB_LETTER_GRADE = letter(["A", "B", "C", "D", "E"], "A–E");
+const CAS_FREE_TEXT: ScoreBounds = { kind: "free", hint: "例如：已完成 / 進行中" };
 
 export const EXAM_SCORE_BOUNDS: Record<string, ScoreBounds> = {
-  "IELTS Academic": { min: 0, max: 9, step: 0.5, hint: "0–9（可含 0.5）" },
-  "IELTS General Training": { min: 0, max: 9, step: 0.5, hint: "0–9（可含 0.5）" },
-  "TOEFL iBT": { min: 0, max: 120, step: 1, hint: "0–120" },
-  "Duolingo English Test": { min: 10, max: 160, step: 5, hint: "10–160（5 分為單位）" },
-  "Pearson PTE Academic": { min: 10, max: 90, step: 1, hint: "10–90" },
-  "Cambridge C1 Advanced (CAE)": { min: 80, max: 230, step: 1, hint: "80–230" },
-  "Cambridge C2 Proficiency (CPE)": { min: 80, max: 230, step: 1, hint: "80–230" },
-  "CELPIP": { min: 0, max: 12, step: 1, hint: "0–12" },
-  "Occupational English Test (OET)": { min: 0, max: 500, step: 10, hint: "0–500（10 分為單位）" },
-  "SAT": { min: 400, max: 1600, step: 10, hint: "400–1600" },
-  "ACT": { min: 1, max: 36, step: 1, hint: "1–36" },
-  "PSAT/NMSQT": { min: 320, max: 1520, step: 10, hint: "320–1520" },
+  "IELTS Academic": numeric(0, 9, 0.5, "0–9（可含 0.5）"),
+  "IELTS General Training": numeric(0, 9, 0.5, "0–9（可含 0.5）"),
+  "TOEFL iBT": numeric(0, 120, 1, "0–120"),
+  "Duolingo English Test": numeric(10, 160, 5, "10–160（5 分為單位）"),
+  "Pearson PTE Academic": numeric(10, 90, 1, "10–90"),
+  "Cambridge C1 Advanced (CAE)": numeric(80, 230, 1, "80–230"),
+  "Cambridge C2 Proficiency (CPE)": numeric(80, 230, 1, "80–230"),
+  "CELPIP": numeric(0, 12, 1, "0–12"),
+  "Occupational English Test (OET)": numeric(0, 500, 10, "0–500（10 分為單位）"),
+  "SAT": numeric(400, 1600, 10, "400–1600"),
+  "ACT": numeric(1, 36, 1, "1–36"),
+  "PSAT/NMSQT": numeric(320, 1520, 10, "320–1520"),
+  // IB core requirements — override the category-wide 1–7 default above.
+  "Extended Essay (EE)": IB_LETTER_GRADE,
+  "Theory of Knowledge (TOK)": IB_LETTER_GRADE,
+  "CAS（創意、活動、服務 / Creativity, Activity, Service）": CAS_FREE_TEXT,
 };
 
 // Used for the "其他考試" category (no preset list at all) and for any
-// custom-typed exam name under "其他（自行輸入）" in the other three
-// categories — we don't know the real scale, so this only blocks
-// obviously-garbage entry (huge numbers, negatives) rather than
-// asserting a specific range. Deliberately no `hint` — showing "0–9999"
-// next to a custom exam name would look like a real, sourced scale when
-// it isn't.
-export const FALLBACK_SCORE_BOUNDS: ScoreBounds = { min: 0, max: 9999, step: 0.01 };
+// custom-typed exam name under "其他（自行輸入）" in the other
+// categories — we don't know the real scale, so this doesn't assert one
+// at all. Free text, only a sane length guard.
+export const FALLBACK_SCORE_BOUNDS: ScoreBounds = { kind: "free" };
+
+const MAX_FREE_TEXT_LENGTH = 40;
 
 export function getScoreBounds(category: string, examName: string): ScoreBounds {
+  if (EXAM_SCORE_BOUNDS[examName]) return EXAM_SCORE_BOUNDS[examName];
   if (category === "ap") return AP_SCORE_BOUNDS;
-  return EXAM_SCORE_BOUNDS[examName] || FALLBACK_SCORE_BOUNDS;
+  if (category === "ib") return IB_SUBJECT_SCORE_BOUNDS;
+  return FALLBACK_SCORE_BOUNDS;
 }
 
 function isMultipleOf(num: number, step: number): boolean {
-  if (step === 0.01) return true; // fallback bound — no real increment to enforce
   const scaled = num / step;
   return Math.abs(scaled - Math.round(scaled)) < 1e-9;
 }
@@ -73,10 +108,21 @@ function isMultipleOf(num: number, step: number): boolean {
 // server-side.
 export function isValidTestScore(category: string, examName: string, raw: string | null | undefined): boolean {
   if (raw === null || raw === undefined || raw === "") return true;
+  const bounds = getScoreBounds(category, examName);
+
+  if (bounds.kind === "free") {
+    return raw.length <= MAX_FREE_TEXT_LENGTH;
+  }
+
+  if (bounds.kind === "letter") {
+    return (bounds.letterOptions || []).includes(raw.toUpperCase());
+  }
+
+  // numeric
   if (!/^\d+(\.\d+)?$/.test(raw)) return false; // reject anything that isn't a plain non-negative number
   const num = Number(raw);
   if (!Number.isFinite(num)) return false;
-  const { min, max, step } = getScoreBounds(category, examName);
+  const { min = 0, max = Infinity, step = 1 } = bounds;
   if (num < min || num > max) return false;
   return isMultipleOf(num, step);
 }
