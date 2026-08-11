@@ -2,15 +2,17 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { QueryPicker } from "@/components/QueryPicker";
 import { ProfileAssessmentPanel } from "@/components/ProfileAssessmentPanel";
+import { AiUsageOverview } from "@/components/AiUsageOverview";
+import { getAiUsageItems } from "@/lib/ai-usage-items";
 import type { SavedAssessment } from "@/app/actions/profile-assessment";
 
 const SECTIONS = [
-  { slug: "grades", label: "成績", ready: true },
-  { slug: "testing", label: "測驗成績", ready: true },
-  { slug: "activities", label: "課外活動", ready: true },
-  { slug: "sports", label: "運動", ready: true },
-  { slug: "awards", label: "獎項與榮譽", ready: true },
-  { slug: "service", label: "志工與工讀", ready: true },
+  { slug: "grades", label: "成績", desc: "高二、高三各科成績", ready: true },
+  { slug: "testing", label: "測驗成績", desc: "AP、IB、語言測驗、SAT/ACT 等", ready: true },
+  { slug: "activities", label: "課外活動", desc: "社團、學術活動等", ready: true },
+  { slug: "sports", label: "運動", desc: "校隊、個人運動項目", ready: true },
+  { slug: "awards", label: "獎項與榮譽", desc: "競賽、獎學金等", ready: true },
+  { slug: "service", label: "志工與工讀", desc: "志工服務、打工經驗", ready: true },
 ];
 
 export default async function AdvisorPortfolioPage({
@@ -43,6 +45,8 @@ export default async function AdvisorPortfolioPage({
       requestedByName: a.requester?.display_name || "使用者",
     }));
   }
+
+  const usageItems = selectedStudent ? await getAiUsageItems(selectedStudent.id) : null;
 
   return (
     <div>
@@ -77,10 +81,20 @@ export default async function AdvisorPortfolioPage({
                   <h3 className="font-display font-bold text-sm">{s.label}</h3>
                   {!s.ready && <span className="text-xs text-warn">即將推出</span>}
                 </div>
+                <p className="text-xs text-slate mt-1">{s.desc}</p>
               </Link>
             ))}
           </div>
           <ProfileAssessmentPanel studentId={selectedStudent.id} initialHistory={assessmentHistory} />
+
+          {usageItems && (
+            <div className="mt-6">
+              <h2 className="font-display font-bold text-base mb-3">{selectedStudent.display_name} 的 AI 使用量</h2>
+              <div className="max-w-md">
+                <AiUsageOverview items={usageItems} />
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

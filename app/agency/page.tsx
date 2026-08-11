@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAgencyDashboardData } from "@/lib/agency-data";
 import { advisorStatus, utilizationPct } from "@/lib/capacity";
+import { getAgencyAiUsageTotals } from "@/lib/ai-usage-items";
 
 const STATUS_PILL: Record<string, string> = {
   available: "bg-good-tint text-good",
@@ -35,6 +36,7 @@ export default async function AgencyOverviewPage() {
     supabase,
     profile.agency_id
   );
+  const aiUsage = await getAgencyAiUsageTotals(profile.agency_id);
 
   const sortedByRoom = [...advisors].sort(
     (a, b) => b.capacity - b.caseload - (a.capacity - a.caseload)
@@ -67,6 +69,28 @@ export default async function AgencyOverviewPage() {
         <div className="rounded border border-line bg-surface shadow-card p-5">
           <div className="text-xs font-semibold text-slate mb-2">目前已逾期文書</div>
           <div className="font-display text-3xl font-bold text-danger">{totalOverdue}</div>
+        </div>
+      </div>
+
+      <h3 className="font-display font-bold text-base mb-2">機構整體 AI 使用量</h3>
+      <p className="text-xs text-slate mb-3">
+        涵蓋機構內全部 {aiUsage.studentCount} 位學生，僅供掌握整體使用狀況 — 個別學生的額度仍分開計算，可在「學習檔案」頁面查看單一學生的用量。
+      </p>
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="rounded border border-line bg-surface shadow-card p-5">
+          <div className="text-xs font-semibold text-slate mb-2">🤖 AI 回饋（近 30 天）</div>
+          <div className="font-display text-3xl font-bold">{aiUsage.essayFeedback30d}</div>
+          <div className="text-xs text-slate mt-1">全機構文書 AI 回饋總次數</div>
+        </div>
+        <div className="rounded border border-line bg-surface shadow-card p-5">
+          <div className="text-xs font-semibold text-slate mb-2">💬 AI 腦力激盪（今日）</div>
+          <div className="font-display text-3xl font-bold">{aiUsage.brainstormToday}</div>
+          <div className="text-xs text-slate mt-1">全機構今日總次數</div>
+        </div>
+        <div className="rounded border border-line bg-surface shadow-card p-5">
+          <div className="text-xs font-semibold text-slate mb-2">📊 AI 綜合評估（近 30 天）</div>
+          <div className="font-display text-3xl font-bold">{aiUsage.profileAssessment30d}</div>
+          <div className="text-xs text-slate mt-1">全機構學習檔案評估總次數</div>
         </div>
       </div>
 

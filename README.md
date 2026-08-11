@@ -2,7 +2,50 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
-## 🩹 Batch 9.19 — CAS is a dropdown now, not free text
+## 🆕 Batch 9.20 — advisor/agency AI usage monitoring, deadline calendars for all three portals, portfolio explanations for advisor/agency, sort-by-deadline
+
+Four separate requests, all shipped together since they touch a lot of the same pages. No SQL to run — this
+batch reuses existing tables/columns throughout.
+
+### (1) / (1a) Advisor and agency can now see AI usage
+- `/advisor/portfolio?student=X` and `/agency/portfolio?student=X` now show that student's AI usage — the
+  exact same three-number `AiUsageOverview` the student sees on their own `/student/account`, not a
+  separate summary that could drift from it. New `lib/ai-usage-items.ts` holds the one shared builder
+  (`getAiUsageItems`) all three portals call.
+- `/agency` (the agency dashboard) now also shows **agency-wide totals** — AI 回饋 across the last 30 days,
+  AI 腦力激盪 today, AI 綜合評估 across the last 30 days, summed across every student in the agency. This is
+  visibility only, not a cap — there's no per-agency limit to check against yet, only the per-student ones
+  already enforced elsewhere.
+- **Bug fix found along the way**: `getBrainstormUsageToday` was using the RLS-scoped Supabase client, whose
+  policy on `brainstorm_usage_log` is intentionally "own rows only." That's fine for a student checking their
+  own usage, but it meant an advisor/agency looking up a *different* student's usage would have silently
+  gotten back 0 — not an error, just RLS quietly filtering out every row — which would have shown "AI 腦力激盪：
+  0/30" for a student who'd actually used it 25 times. Switched to the admin client, matching the other two
+  usage getters (`getEssayFeedbackUsage`, `getProfileAssessmentUsage`), which already worked this way.
+
+### (2) / (2a) Deadline calendars, now with a real calendar view, for all three portals
+- New `components/DeadlineCalendarView.tsx` — the existing student `/student/calendar` list view is
+  preserved exactly as it was, now with a toggle to a proper month-grid view (prev/next month navigation,
+  today highlighted, each day showing up to 3 deadlines with a "+N 項" overflow indicator).
+- New `/advisor/calendar` and `/agency/calendar` — same component, but pulling deadlines across **all** of
+  that advisor's/agency's students at once (each item labeled with the student's name), for the
+  September–January crunch Dan mentioned. Both list and grid views. Added to both portals' nav.
+
+### (3) Advisor/agency 學習檔案 pages now explain each section
+`/advisor/portfolio` and `/agency/portfolio` previously showed only the section name ("測驗成績") with no
+explanation of what belongs there. Both now show the same one-line description the student's own
+`/student/portfolio` already had ("AP、IB、語言測驗、SAT/ACT 等" etc.) under each card.
+
+### (4) Sort students by deadline
+`/advisor/students` and `/agency/students` both get a "依姓名排序 / 依最近截止日排序" toggle — the deadline
+option orders student cards by their single soonest upcoming (or overdue) deadline across all their
+applications, with students who have no deadline set at all sorted to the end rather than jumping to the
+top. Independently of that toggle, the list of applications shown *within* each student's card is now
+always sorted by deadline too (previously just whatever order the database happened to return). New shared
+sort helpers in `lib/deadlines.ts` (`earliestDeadline`, `sortApplicationsByDeadline`,
+`sortStudentsByDeadline`) so both pages use identical logic.
+
+## 🆕 Batch 9.19 — CAS is a dropdown now, not free text
 
 Small follow-up to Batch 9.18: CAS ("Creativity, Activity, Service" — the third IB core requirement
 alongside EE and TOK) has no numeric or letter grade at all, just a completion status, so it was set to

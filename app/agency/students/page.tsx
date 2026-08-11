@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { type Stage } from "@/lib/stages";
 import { createApplicationFor } from "@/app/actions/applications";
+import { sortApplicationsByDeadline, sortStudentsByDeadline } from "@/lib/deadlines";
 
 const ERROR_MESSAGES: Record<string, string> = {
   missing_school_name: "請輸入學校名稱。",
@@ -15,9 +16,9 @@ const ERROR_MESSAGES: Record<string, string> = {
 export default async function AgencyStudentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ advisor?: string; error?: string; success?: string }>;
+  searchParams: Promise<{ advisor?: string; error?: string; success?: string; sort?: string }>;
 }) {
-  const { advisor: advisorFilter, error, success } = await searchParams;
+  const { advisor: advisorFilter, error, success, sort } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -37,13 +38,19 @@ export default async function AgencyStudentsPage({
     .from("profiles")
     .select("id, display_name, primary_advisor_id, applications(id, stage, deadline, schools(name))")
     .eq("agency_id", profile.agency_id)
-    .eq("role", "student");
+    .eq("role", "student")
+    .order("display_name");
 
   if (advisorFilter) {
     studentsQuery = studentsQuery.eq("primary_advisor_id", advisorFilter);
   }
 
-  const { data: students } = await studentsQuery;
+  const { data: studentsRaw } = await studentsQuery;
+  const sortByDeadline = sort === "deadline";
+  const students = sortByDeadline ? sortStudentsByDeadline(studentsRaw || []) : studentsRaw || [];
+
+  // Preserve the advisor filter (if any) when switching sort mode.
+  const sortLinkSuffix = advisorFilter ? `&advisor=${advisorFilter}` : "";
 
   const { data: advisorsList } = await supabase
     .from("profiles")
@@ -82,6 +89,25 @@ export default async function AgencyStudentsPage({
         </div>
       )}
 
+      <div className="flex items-center gap-2 mb-6">
+        <Link
+          href={`/agency/students?sort=name${sortLinkSuffix}`}
+          className={`rounded px-3 py-1.5 text-xs font-semibold ${
+            !sortByDeadline ? "bg-ink text-white" : "border border-line text-slate"
+          }`}
+        >
+          依姓名排序
+        </Link>
+        <Link
+          href={`/agency/students?sort=deadline${sortLinkSuffix}`}
+          className={`rounded px-3 py-1.5 text-xs font-semibold ${
+            sortByDeadline ? "bg-ink text-white" : "border border-line text-slate"
+          }`}
+        >
+          依最近截止日排序
+        </Link>
+      </div>
+
       <div className="flex flex-col gap-4">
         {!students || students.length === 0 ? (
           <p className="text-sm text-slate">目前還沒有學生。</p>
@@ -104,7 +130,7 @@ export default async function AgencyStudentsPage({
                 <p className="text-sm text-slate">尚未新增任何申請項目。</p>
               )}
               <div className="flex flex-col gap-3 mb-3">
-                {student.applications?.map((app: any) => (
+                {sortApplicationsByDeadline(student.applications || []).map((app: any) => (
                   <Link
                     key={app.id}
                     href={`/agency/applications/${app.id}`}

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { StageThread } from "@/components/StageThread";
 import { type Stage } from "@/lib/stages";
 import { createApplicationFor } from "@/app/actions/applications";
+import { sortApplicationsByDeadline, sortStudentsByDeadline } from "@/lib/deadlines";
 
 const ERROR_MESSAGES: Record<string, string> = {
   missing_school_name: "請輸入學校名稱。",
@@ -15,27 +16,50 @@ const ERROR_MESSAGES: Record<string, string> = {
 export default async function AdvisorStudentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; success?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; sort?: string }>;
 }) {
-  const { error, success } = await searchParams;
+  const { error, success, sort } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { data: students } = await supabase
+  const { data: studentsRaw } = await supabase
     .from("profiles")
     .select(
       "id, display_name, primary_advisor_id, primary_advisor:profiles!primary_advisor_id(display_name), applications(id, stage, deadline, schools(name))"
     )
-    .eq("role", "student");
+    .eq("role", "student")
+    .order("display_name");
+
+  const sortByDeadline = sort === "deadline";
+  const students = sortByDeadline ? sortStudentsByDeadline(studentsRaw || []) : studentsRaw || [];
 
   return (
     <div>
       <h1 className="font-display text-2xl font-bold text-ink mb-1">學生總覽</h1>
-      <p className="text-sm text-slate mb-6">
+      <p className="text-sm text-slate mb-4">
         {students?.length || 0} 位學生（機構內所有學生）— 點選任一申請項目可查看草稿與留下回饋。
       </p>
+
+      <div className="flex items-center gap-2 mb-6">
+        <Link
+          href="/advisor/students"
+          className={`rounded px-3 py-1.5 text-xs font-semibold ${
+            !sortByDeadline ? "bg-ink text-white" : "border border-line text-slate"
+          }`}
+        >
+          依姓名排序
+        </Link>
+        <Link
+          href="/advisor/students?sort=deadline"
+          className={`rounded px-3 py-1.5 text-xs font-semibold ${
+            sortByDeadline ? "bg-ink text-white" : "border border-line text-slate"
+          }`}
+        >
+          依最近截止日排序
+        </Link>
+      </div>
 
       {error && (
         <div className="rounded border border-danger/30 bg-danger-tint text-danger text-sm px-4 py-3 mb-6">
@@ -76,7 +100,7 @@ export default async function AdvisorStudentsPage({
                 <p className="text-sm text-slate">尚未新增任何申請項目。</p>
               )}
               <div className="flex flex-col gap-3 mb-3">
-                {student.applications?.map((app: any) => (
+                {sortApplicationsByDeadline(student.applications || []).map((app: any) => (
                   <Link
                     key={app.id}
                     href={`/advisor/applications/${app.id}`}

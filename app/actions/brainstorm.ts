@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL } from "@/lib/anthropic";
 
 export interface BrainstormMessage {
@@ -35,15 +36,24 @@ async function checkAndLogQuota(userId: string): Promise<boolean> {
 }
 
 // Read-only variant of the same count, for the account-settings usage
-// gauge (Batch 9.10) — doesn't insert a row, just reports where the
-// student stands against today's limit.
+// gauge (Batch 9.10), and now also for advisor/agency AI-usage
+// monitoring (Batch 9.20) — doesn't insert a row, just reports where a
+// given student stands against today's limit. Uses the admin client
+// (not the RLS-scoped one, unlike checkAndLogQuota above) because this
+// now needs to report on OTHER people's usage, not just the caller's
+// own — brainstorm_usage_log's RLS is intentionally scoped to
+// "user_id = auth.uid()" only, so an advisor calling this with a
+// student's id through the regular client would silently get back 0
+// (RLS quietly filtering out rows, not an error) rather than the real
+// count. Authorization is the calling page's job, same as the other two
+// usage getters in ai-feedback.ts and profile-assessment.ts.
 export async function getBrainstormUsageToday(
   userId: string
 ): Promise<{ used: number; limit: number }> {
-  const supabase = await createClient();
+  const admin = createAdminClient();
   const since = new Date();
   since.setHours(0, 0, 0, 0);
-  const { count } = await supabase
+  const { count } = await admin
     .from("brainstorm_usage_log")
     .select("id", { count: "exact", head: true })
     .eq("user_id", userId)
