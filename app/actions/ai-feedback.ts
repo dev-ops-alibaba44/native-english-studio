@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getAnthropic, AI_FEEDBACK_MODEL } from "@/lib/anthropic";
+import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthropic";
 import { getLiveblocksServerClient, AI_FEEDBACK_USER_ID } from "@/lib/liveblocks-server";
 import { MONTHLY_ESSAY_FEEDBACK_LIMIT } from "@/lib/ai-limits";
 
@@ -101,10 +101,8 @@ export async function generateEssayFeedback(
       // mechanism is a `cache_control` field on the specific content
       // block you want cached, as used below.)
       system: [
-        {
-          type: "text",
-          text:
-            "You are an experienced, encouraging US college application essay advisor working " +
+        cachedSystemBlock(
+          "You are an experienced, encouraging US college application essay advisor working " +
             "for a Taiwan-based consultancy. Students you're reviewing are applying to English-" +
             "medium universities and are not native English speakers, so be attentive to both " +
             "substance and language issues without being discouraging about the latter.\n\n" +
@@ -131,9 +129,8 @@ export async function generateEssayFeedback(
             "Output format: a few short paragraphs, under 300 words total. Always open by naming " +
             "at least one genuine, specific strength before any suggestions. Do not rewrite the " +
             "essay for the student — describe what to change, not the replacement text. Do not " +
-            "use a numbered or bulleted list in your output; write in prose.",
-          cache_control: { type: "ephemeral" },
-        },
+            "use a numbered or bulleted list in your output; write in prose."
+        ),
       ],
       messages: [
         {

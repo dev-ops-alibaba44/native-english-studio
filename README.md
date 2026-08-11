@@ -2,6 +2,41 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 9.20.1 — fix: Vercel build failure (TypeScript error on `cache_control`)
+
+**Bug fix, no new features, no SQL.** The first Vercel deploy attempt failed during `next build`'s
+TypeScript check (not a stall — the build actually errored out) on this:
+
+```
+./app/actions/ai-feedback.ts:135:11
+Type error: No overload matches this call.
+  Object literal may only specify known properties, and 'cache_control' does not exist in type 'TextBlockParam'.
+```
+
+**Root cause**: prompt caching (Batch 9.4) sets `cache_control` on the `system` message's text block —
+this is correct, documented, GA behavior of the Messages API, not a mistake. The problem is narrower: the
+exact `@anthropic-ai/sdk` version pinned in `package.json` (`^0.32.1`) ships TypeScript types where
+`TextBlockParam` doesn't yet declare that field, even though the live API has always accepted it. `next
+dev` (what gets run locally day-to-day) never runs a full production type-check, so this was never caught
+until Vercel's `next build` did.
+
+**Fix**: added one small helper, `cachedSystemBlock(text)` in `lib/anthropic.ts`, that builds the
+`{ type: "text", text, cache_control: {...} }` object with a single, centralized type cast, and swapped
+all three call sites (`ai-feedback.ts`, `brainstorm.ts`, `profile-assessment.ts`) to use it instead of each
+inlining the same object (which is also just tidier — one shared source of truth instead of three copies of
+the same shape, consistent with the project's existing "single source of truth" pattern for score bounds
+and grade scales). No behavior change — this is purely a type-checking fix; the actual API calls are
+identical to before.
+
+**Also recommended, not applied automatically**: this project's zip has never included a
+`package-lock.json`. That means every fresh `npm install` (including Vercel's) resolves dependency
+versions at install time rather than reusing exactly what was last verified working — this is very likely
+how the installed SDK version and its types ended up out of step with the API's actual shape. Once this
+batch is confirmed deployed successfully, run `npm install` locally (regenerates a fresh, complete
+`package-lock.json` from the versions you already have working) and commit it. That pins dependency
+versions for future deploys and removes this whole class of "worked locally with dev, failed only on
+Vercel's build" surprise.
+
 ## 🆕 Batch 9.20 — advisor/agency AI usage monitoring, deadline calendars for all three portals, portfolio explanations for advisor/agency, sort-by-deadline
 
 Four separate requests, all shipped together since they touch a lot of the same pages. No SQL to run — this

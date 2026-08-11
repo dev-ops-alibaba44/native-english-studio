@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getAnthropic, AI_FEEDBACK_MODEL } from "@/lib/anthropic";
+import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthropic";
 
 export interface BrainstormMessage {
   role: "user" | "assistant";
@@ -85,10 +85,8 @@ export async function brainstormReply(
       model: AI_FEEDBACK_MODEL,
       max_tokens: 400,
       system: [
-        {
-          type: "text",
-          text:
-            "You are a warm, curious brainstorming partner helping a Taiwanese high school student " +
+        cachedSystemBlock(
+          "You are a warm, curious brainstorming partner helping a Taiwanese high school student " +
             "think through ideas for a US college application essay. The student will paste an essay " +
             "prompt (often in English) and then think out loud, sometimes in English, sometimes in " +
             "Chinese.\n\n" +
@@ -103,9 +101,8 @@ export async function brainstormReply(
             "renders as plain text, so write in plain prose and simple line breaks only.\n\n" +
             "IMPORTANT: Write your responses in Traditional Chinese (繁體中文), even though the essay " +
             "prompt and the student's own notes may be in English. It's fine to quote a short English " +
-            "phrase from what they wrote, but your questions and comments are always in Chinese.",
-          cache_control: { type: "ephemeral" },
-        },
+            "phrase from what they wrote, but your questions and comments are always in Chinese."
+        ),
       ],
       messages: [
         ...recentHistory.map((m) => ({ role: m.role, content: m.content })),

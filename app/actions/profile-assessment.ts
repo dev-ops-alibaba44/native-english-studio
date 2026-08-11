@@ -3,7 +3,7 @@
 import { createHash } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { getAnthropic, AI_FEEDBACK_MODEL } from "@/lib/anthropic";
+import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthropic";
 import { MONTHLY_PROFILE_ASSESSMENT_LIMIT } from "@/lib/ai-limits";
 
 function hashProfileSummary(summary: string): string {
@@ -207,10 +207,8 @@ export async function generateProfileAssessment(
       model: AI_FEEDBACK_MODEL,
       max_tokens: 1400,
       system: [
-        {
-          type: "text",
-          text:
-            "You are an experienced US/UK college admissions counselor working for a Taiwan-based " +
+        cachedSystemBlock(
+          "You are an experienced US/UK college admissions counselor working for a Taiwan-based " +
             "consultancy, reviewing a student's application profile (grades, test scores, " +
             "extracurricular activities, and in-progress essays). Write your entire response in " +
             "Traditional Chinese (繁體中文) — school names, exam names, and course titles may stay " +
@@ -239,9 +237,8 @@ export async function generateProfileAssessment(
             "cannot see, plus how competitive that year's overall applicant pool is; the student " +
             "should discuss this with their advisor rather than treat it as a final answer.\n\n" +
             "Keep the whole response under 500 words. Do not use markdown bold/asterisks — plain " +
-            "text with the four numbered headings is enough.",
-          cache_control: { type: "ephemeral" },
-        },
+            "text with the four numbered headings is enough."
+        ),
       ],
       messages: [
         {
