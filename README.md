@@ -2,6 +2,28 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 9.20.4 — fix: fourth build error (`proxy.ts` missing `CookieOptions` type)
+
+**Bug fix, no new features, no SQL.**
+
+```
+./proxy.ts:23:42
+Type error: Parameter 'options' implicitly has an 'any' type.
+```
+
+**Root cause**: different from the last three — not a dependency-version drift issue, just a
+pre-existing gap in this one file. `lib/supabase/server.ts` (the Server Component/Action Supabase client)
+already types its cookie `set`/`remove` callbacks as `(name: string, value: string, options:
+CookieOptions)`, importing `CookieOptions` from `@supabase/ssr` — but `proxy.ts` (the site-wide session
+-refresh proxy, Next.js 16's renamed `middleware.ts`) never got the same annotation when it was written,
+leaving `options` as an implicit `any` in both its `set` and `remove` callbacks. Same `"strict": true` /
+`noImplicitAny` rule as the advisor-page fix in 9.20.2, just a plain oversight this time rather than a
+spread-collapses-to-any situation.
+
+**Fix**: imported `CookieOptions` from `@supabase/ssr` in `proxy.ts` and annotated both callbacks,
+matching `lib/supabase/server.ts` exactly. Checked the rest of the codebase for the same missing-annotation
+pattern — this was the only place it occurred.
+
 ## 🆕 Batch 9.20.3 — fix: third build error (`stripe` apiVersion, surfaced by `npm audit fix`)
 
 **Bug fix, no new features, no SQL.** After Batch 9.20.2's fix and generating `package-lock.json`, `npm run
