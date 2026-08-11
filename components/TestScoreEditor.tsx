@@ -29,6 +29,10 @@ function isValidPartialScore(category: string, examName: string, raw: string): b
 
   if (bounds.kind === "free") return raw.length <= 40;
 
+  // "select" never goes through the text-input path below — its value
+  // always comes from a real <select>, which can only ever hold one of
+  // the exact options — so there's nothing to partially validate here.
+
   if (bounds.kind === "letter") {
     // Typed one character at a time — just check it's a prefix of
     // something valid (a single letter from the allowed set, typed in
@@ -205,31 +209,46 @@ export function TestScoreEditor({
 
                 <label className="flex flex-col gap-1 text-xs text-slate">
                   成績{hint && <span className="text-slate/70">（{hint}）</span>}
-                  <input
-                    type="text"
-                    inputMode={bounds.kind === "numeric" ? "decimal" : "text"}
-                    value={row.score}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      // Reject the keystroke outright if it would already be
-                      // invalid (non-numeric/over-max for a numeric scale, or
-                      // not a valid letter for a lettered one) — this is what
-                      // actually stops "1139999" from being typeable into a
-                      // 0–120 TOEFL field, rather than just failing quietly
-                      // at save time.
-                      if (isValidPartialScore(category, row.exam_name, next)) updateRow(row.key, { score: next });
-                    }}
-                    onBlur={(e) => {
-                      // Clean up trailing-dot states (numeric), normalize
-                      // case (letter), and clear anything that still isn't
-                      // fully valid once typing has stopped.
-                      let cleaned = e.target.value.trim();
-                      if (bounds.kind === "numeric") cleaned = cleaned.replace(/\.$/, "");
-                      if (bounds.kind === "letter") cleaned = cleaned.toUpperCase();
-                      updateRow(row.key, { score: isValidTestScore(category, row.exam_name, cleaned) ? cleaned : "" });
-                    }}
-                    className="rounded border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-brand w-24"
-                  />
+                  {bounds.kind === "select" ? (
+                    <select
+                      value={row.score}
+                      onChange={(e) => updateRow(row.key, { score: e.target.value })}
+                      className="rounded border border-line px-2 py-1.5 text-sm text-ink w-32"
+                    >
+                      <option value="">請選擇</option>
+                      {(bounds.selectOptions || []).map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      inputMode={bounds.kind === "numeric" ? "decimal" : "text"}
+                      value={row.score}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        // Reject the keystroke outright if it would already be
+                        // invalid (non-numeric/over-max for a numeric scale, or
+                        // not a valid letter for a lettered one) — this is what
+                        // actually stops "1139999" from being typeable into a
+                        // 0–120 TOEFL field, rather than just failing quietly
+                        // at save time.
+                        if (isValidPartialScore(category, row.exam_name, next)) updateRow(row.key, { score: next });
+                      }}
+                      onBlur={(e) => {
+                        // Clean up trailing-dot states (numeric), normalize
+                        // case (letter), and clear anything that still isn't
+                        // fully valid once typing has stopped.
+                        let cleaned = e.target.value.trim();
+                        if (bounds.kind === "numeric") cleaned = cleaned.replace(/\.$/, "");
+                        if (bounds.kind === "letter") cleaned = cleaned.toUpperCase();
+                        updateRow(row.key, { score: isValidTestScore(category, row.exam_name, cleaned) ? cleaned : "" });
+                      }}
+                      className="rounded border border-line px-2 py-1.5 text-sm text-ink outline-none focus:border-brand w-24"
+                    />
+                  )}
                 </label>
 
                 <button

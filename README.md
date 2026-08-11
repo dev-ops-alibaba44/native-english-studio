@@ -2,6 +2,19 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🩹 Batch 9.19 — CAS is a dropdown now, not free text
+
+Small follow-up to Batch 9.18: CAS ("Creativity, Activity, Service" — the third IB core requirement
+alongside EE and TOK) has no numeric or letter grade at all, just a completion status, so it was set to
+"free" text — meaning literally anything, including garbage, was a valid save. `lib/exam-score-bounds.ts`
+has a fourth score kind now — `"select"` — an exact-match set of options with no typing involved at all.
+CAS uses it with three options: 尚未開始 / 進行中 / 已完成. `TestScoreEditor.tsx` renders this as an actual
+`<select>` dropdown instead of a text field whenever a score is `"select"` kind, so there's no keystroke to
+validate in the first place — the same "make the wrong thing unrepresentable" approach as the numeric hard
+caps, just applied to a 3-state field instead of a range.
+
+No schema change, no SQL to run — this is client + server validation logic only, same table as before.
+
 ## 🆕 Batch 9.18 — IB section added to 測驗成績 (Testing)
 
 New subsection, positioned between AP and language testing as requested: 🌐 IB 課程與核心項目. Same

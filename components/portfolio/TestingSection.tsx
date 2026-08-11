@@ -68,7 +68,7 @@ export async function TestingSection({ studentId, studentName }: { studentId: st
           category="other"
           initialRows={byCategory.other}
           heading="📋 其他考試"
-          intro="任何不屬於以上三類，但想讓顧問或機構知道的考試成績。"
+          intro="任何不屬於以上四類，但想讓顧問或機構知道的考試成績。"
           presetOptions={[]}
           examLabel="考試名稱"
         />

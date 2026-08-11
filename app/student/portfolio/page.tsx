@@ -5,7 +5,7 @@ import type { SavedAssessment } from "@/app/actions/profile-assessment";
 
 const SECTIONS = [
   { href: "/student/portfolio/grades", label: "成績", desc: "高二、高三各科成績", ready: true },
-  { href: "/student/portfolio/testing", label: "測驗成績", desc: "AP、語言測驗、SAT/ACT 等", ready: true },
+  { href: "/student/portfolio/testing", label: "測驗成績", desc: "AP、IB、語言測驗、SAT/ACT 等", ready: true },
   { href: "/student/portfolio/activities", label: "課外活動", desc: "社團、學術活動等", ready: true },
   { href: "/student/portfolio/sports", label: "運動", desc: "校隊、個人運動項目", ready: true },
   { href: "/student/portfolio/awards", label: "獎項與榮譽", desc: "競賽、獎學金等", ready: true },

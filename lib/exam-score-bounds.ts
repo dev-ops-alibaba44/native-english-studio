@@ -26,7 +26,13 @@
 // guarding against absurdly long junk rather than asserting a scale we
 // don't actually know.
 
-export type ScoreKind = "numeric" | "letter" | "free";
+// Batch 9.19: CAS was originally "free" kind (any short text), which
+// technically satisfied "not a hard numeric scale" but let anything —
+// including garbage — through as a valid save. CAS only ever has three
+// real states, so it gets its own "select" kind: an exact-match set of
+// options, rendered as an actual dropdown in TestScoreEditor rather than
+// a text field a person could type anything into.
+export type ScoreKind = "numeric" | "letter" | "select" | "free";
 
 export interface ScoreBounds {
   kind: ScoreKind;
@@ -36,6 +42,10 @@ export interface ScoreBounds {
   step?: number;
   // letter only — score must case-insensitively match one of these
   letterOptions?: string[];
+  // select only — score must exactly match one of these (rendered as
+  // a <select>, so there's no case-normalization question the way
+  // there is for typed letter grades)
+  selectOptions?: string[];
   // Human-readable hint shown next to the input. Left undefined for the
   // generic "free" fallback so we don't assert false precision about a
   // scale we don't actually know.
@@ -50,6 +60,10 @@ function letter(options: string[], hint: string): ScoreBounds {
   return { kind: "letter", letterOptions: options, hint };
 }
 
+function select(options: string[]): ScoreBounds {
+  return { kind: "select", selectOptions: options };
+}
+
 // All current AP subjects share the same 1–5 scale (see AP_EXAM_OPTIONS
 // in lib/exam-options.ts) — applied by category, not by individual exam
 // name, since there'd otherwise be 43 identical entries below.
@@ -62,7 +76,7 @@ export const AP_SCORE_BOUNDS: ScoreBounds = numeric(1, 5, 1, "1–5");
 export const IB_SUBJECT_SCORE_BOUNDS: ScoreBounds = numeric(1, 7, 1, "1–7");
 
 const IB_LETTER_GRADE = letter(["A", "B", "C", "D", "E"], "A–E");
-const CAS_FREE_TEXT: ScoreBounds = { kind: "free", hint: "例如：已完成 / 進行中" };
+const CAS_STATUS = select(["尚未開始", "進行中", "已完成"]);
 
 export const EXAM_SCORE_BOUNDS: Record<string, ScoreBounds> = {
   "IELTS Academic": numeric(0, 9, 0.5, "0–9（可含 0.5）"),
@@ -80,7 +94,7 @@ export const EXAM_SCORE_BOUNDS: Record<string, ScoreBounds> = {
   // IB core requirements — override the category-wide 1–7 default above.
   "Extended Essay (EE)": IB_LETTER_GRADE,
   "Theory of Knowledge (TOK)": IB_LETTER_GRADE,
-  "CAS（創意、活動、服務 / Creativity, Activity, Service）": CAS_FREE_TEXT,
+  "CAS（創意、活動、服務 / Creativity, Activity, Service）": CAS_STATUS,
 };
 
 // Used for the "其他考試" category (no preset list at all) and for any
@@ -116,6 +130,10 @@ export function isValidTestScore(category: string, examName: string, raw: string
 
   if (bounds.kind === "letter") {
     return (bounds.letterOptions || []).includes(raw.toUpperCase());
+  }
+
+  if (bounds.kind === "select") {
+    return (bounds.selectOptions || []).includes(raw);
   }
 
   // numeric
