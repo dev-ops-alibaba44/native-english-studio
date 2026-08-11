@@ -2,6 +2,77 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 9.20.3 — fix: third build error (`stripe` apiVersion, surfaced by `npm audit fix`)
+
+**Bug fix, no new features, no SQL.** After Batch 9.20.2's fix and generating `package-lock.json`, `npm run
+build` (run locally this time, per the 9.20.2 recommendation — good call, this caught it before another
+Vercel round-trip) turned up a third, unrelated error:
+
+```
+./lib/stripe.ts:24:7
+Type error: Type '"2024-12-18.acacia"' is not assignable to type '"2025-02-24.acacia"'.
+```
+
+**Root cause**: same family as the previous two fixes, one more time — `lib/stripe.ts` hardcodes
+`apiVersion: "2024-12-18.acacia"`, a Stripe SDK convention where that field is typed as an exact string
+literal matching whatever API version the installed `stripe` npm package was built against (this is
+deliberate on Stripe's part — it fails to compile rather than silently sending a version header the SDK
+was never tested against). This project previously had no `package-lock.json`, so `npm install` (and then
+`npm audit fix`, run to patch the `nanoid` advisory from 9.20.2) was free to resolve a newer `stripe`
+package than whatever this string was originally written against.
+
+**Fix**: updated the literal to `"2025-02-24.acacia"`, matching what the now-locked `stripe` version's
+types expect. Since Stripe billing isn't connected yet (deliberately deferred, per the handoff), this has
+no functional impact right now — it only matters once billing actually goes live, at which point the
+webhook/checkout flows should be tested against whichever API version is pinned here.
+
+**This should be the last of this specific class of surprise**: all three build fixes in this 9.20.x run
+(cache_control typing, the advisor-page implicit-any, and this one) trace back to the same root
+cause — no committed lockfile meant every fresh install could quietly resolve different dependency
+versions than whatever was last verified. Batch 9.20.2 committed `package-lock.json` for the first time, so
+dependency versions are now pinned going forward. Running `npm run build` locally before pushing (not just
+`npm run dev`) is worth keeping as a habit from here on, since `next dev` doesn't run the full type-check
+that `next build` (and Vercel) does.
+
+## 🆕 Batch 9.20.2 — fix: second Vercel build failure (implicit `any` in advisor 本週關注 sort)
+
+**Bug fix, no new features, no SQL.** Batch 9.20.1 fixed the `cache_control` type error and got the build
+past that point — it compiled and got further into the TypeScript check before hitting a second, unrelated
+error:
+
+```
+./app/advisor/page.tsx:50:11
+Type error: Element implicitly has an 'any' type because expression of type 'any' can't be used to index
+type 'Record<Urgency, number>'.
+```
+
+**Root cause**: `/advisor` (本週關注, the advisor's landing page) builds its sorted row list with
+`.map((app: any) => ({ ...app, urgency: urgencyOf(...), ... }))`. Spreading an `any`-typed value (`...app`)
+into an object literal makes TypeScript infer the *entire resulting object* as `any` — including the
+`urgency` field, even though `urgencyOf()` itself returns the properly-typed `Urgency` union. That `any`
+then flows into the `.sort()` comparator right after, where indexing `Record<Urgency, number>` with an
+`any`-typed key trips `noImplicitAny` (part of `"strict": true` in `tsconfig.json`). This is unrelated to
+the Batch 9.4 prompt-caching fix — a separate, pre-existing gap that also only surfaces under a full
+`next build` type-check, same story as 9.20.1: `next dev` never caught it.
+
+**Fix**: added an explicit `AdvisorTodayRow` type and annotated the `.map()` callback's return type
+(`(app: any): AdvisorTodayRow => ({...})`). This is the general pattern for this failure mode — spreading
+an untyped/`any` source is fine, but the object literal doing the spreading needs an explicit annotated
+return type so TypeScript keeps the type you actually wrote instead of collapsing to `any`. No behavior
+change, no other files affected — this pattern (`.map((x: any) => ({...x, ...}))` immediately followed by
+`.sort()` on a typed field) is local to this one page; nowhere else in the codebase does the same thing
+(checked — the Batch 9.20 sort-by-deadline feature on `/advisor/students` and `/agency/students` uses the
+separately, properly-typed `lib/deadlines.ts` helpers and doesn't have this problem).
+
+**npm audit**: `npm audit` (run after generating `package-lock.json` per the 9.20.1 recommendation) flagged
+one high-severity advisory — `nanoid <3.3.17` (GHSA-2v37-7h3g-55p8, a hang when a custom generator is
+called with `size: 0`). This is a transitive dependency only — nothing in this codebase calls `nanoid`
+directly, it's pulled in by another package (most likely Liveblocks/Tiptap's own collaboration-ID
+generation) — so the app's own code isn't exploitable through this. Still worth patching since it's
+non-breaking: run `npm audit fix` (not `--force`) after unzipping this batch, then re-commit
+`package-lock.json`. See "Next steps" at the bottom of this changelog entry for the exact order to do this
+in.
+
 ## 🆕 Batch 9.20.1 — fix: Vercel build failure (TypeScript error on `cache_control`)
 
 **Bug fix, no new features, no SQL.** The first Vercel deploy attempt failed during `next build`'s

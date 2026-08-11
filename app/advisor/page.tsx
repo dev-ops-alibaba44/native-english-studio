@@ -18,6 +18,16 @@ function urgencyOf(deadline: string | null, stage: string): Urgency {
   return "ok";
 }
 
+type AdvisorTodayRow = {
+  id: string;
+  deadline: string | null;
+  stage: string;
+  student_id: string;
+  schools: { name: string } | null;
+  urgency: Urgency;
+  studentName: string;
+};
+
 export default async function AdvisorTodayPage() {
   const supabase = await createClient();
   const {
@@ -40,11 +50,13 @@ export default async function AdvisorTodayPage() {
     : { data: [] as any[] };
 
   const rows = (applications || [])
-    .map((app: any) => ({
-      ...app,
-      urgency: urgencyOf(app.deadline, app.stage),
-      studentName: studentNameById.get(app.student_id) || "（未命名學生）",
-    }))
+    .map(
+      (app: any): AdvisorTodayRow => ({
+        ...app,
+        urgency: urgencyOf(app.deadline, app.stage),
+        studentName: studentNameById.get(app.student_id) || "（未命名學生）",
+      })
+    )
     .sort((a, b) => {
       const order: Record<Urgency, number> = { overdue: 0, urgent: 1, ok: 2 };
       if (order[a.urgency] !== order[b.urgency]) return order[a.urgency] - order[b.urgency];

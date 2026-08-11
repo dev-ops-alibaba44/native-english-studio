@@ -20,8 +20,22 @@ export function getStripe(): Stripe {
     );
   }
   if (!_stripe) {
+    // Batch 9.20.3 fix: this literal must match the API version the
+    // installed `stripe` npm package's TypeScript types were built
+    // against — the Stripe Node SDK types `apiVersion` as an exact string
+    // literal, not a general string, specifically so a mismatch fails to
+    // compile rather than silently sending a version header the SDK
+    // wasn't tested against. Before Batch 9.20.2, this project had no
+    // `package-lock.json`, so `npm install`/`npm audit fix` were free to
+    // resolve a newer `stripe` version than whatever this string was
+    // originally written against — same root cause as the two Vercel
+    // build fixes just before this one. Now that a lockfile is committed
+    // (Batch 9.20.2), the installed version is pinned going forward, so
+    // this shouldn't drift again on its own; only bump this string
+    // deliberately, together with a `stripe` version bump, and re-run
+    // `npm run build` locally to confirm they still agree.
     _stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-      apiVersion: "2024-12-18.acacia",
+      apiVersion: "2025-02-24.acacia",
     });
   }
   return _stripe;
