@@ -1,5 +1,6 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import {
   isValidEmail,
@@ -99,6 +100,43 @@ export async function submitWaitlistSignup(
 
   if (error) {
     console.error("submitWaitlistSignup: insert failed", error);
+    return { success: false, error: "insert_failed" };
+  }
+
+  return { success: true };
+}
+
+// Chatbot email capture — deliberately a dedicated small form in the widget
+// (ChatWidget.tsx), not something parsed out of free chat text. Free-text
+// extraction ("did the visitor mention an email in their message?") is
+// unreliable both ways: it can miss a real email typed conversationally,
+// and it can misfire on something that only looks like one. A plain input
+// the visitor explicitly fills in is simple and always correct.
+export async function submitChatbotEmail(email: string): Promise<PublicFormResult> {
+  const trimmed = email.trim();
+  if (!isValidEmail(trimmed)) {
+    return { success: false, error: "invalid_email" };
+  }
+
+  // Reuses the same session_id cookie the /api/chat route sets, so this
+  // lead links back to that session's transcript in chatbot_messages.
+  // If someone somehow submits the email field before ever sending a chat
+  // message, there's no session cookie yet — the widget only renders this
+  // field after at least one exchange, so that path shouldn't occur, but
+  // fall back to a fresh id rather than failing outright.
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("nes_chat_sid")?.value ?? crypto.randomUUID();
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("chatbot_messages").insert({
+    session_id: sessionId,
+    role: "lead",
+    content: "",
+    email: trimmed,
+  });
+
+  if (error) {
+    console.error("submitChatbotEmail: insert failed", error);
     return { success: false, error: "insert_failed" };
   }
 

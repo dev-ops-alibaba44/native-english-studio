@@ -54,6 +54,10 @@ const config: Config = {
         display: ["var(--font-display)", "serif"],
         body: ["var(--font-body)", "sans-serif"],
         util: ["var(--font-util)", "sans-serif"],
+        // Brush-style Chinese font, used ONLY as a large, faint decorative
+        // character behind section headers (the "calligraphy" accent) —
+        // never for body text or anything that needs to stay legible.
+        calligraphy: ["var(--font-calligraphy)", "serif"],
       },
       borderRadius: {
         DEFAULT: "12px",

@@ -2,6 +2,59 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 11 — homepage content pass: real copy/photos, product showcase, calligraphy, homepage chatbot
+
+**New feature + content pass. One new SQL patch (`supabase/batch11_chatbot_leads.sql`), no changes to
+Batch 10's tables/RLS.** Response to Dan's first-round feedback on Batch 10. **Not** in this batch —
+deliberately deferred pending a separate scoping conversation: the super-admin platform, automated
+self-serve sign-up + Stripe trial billing, agency/parent onboarding invite flows, and LINE integration.
+See the message accompanying this batch for why, and for the questions that unblock each one.
+
+**What's new**:
+- **Real founder content (`lib/site-content.ts`)** — decoded `WEBSITE_TEXT.rtf` (it was Big5 text that
+  had been double-mangled into mojibake; recovered by reversing the encoding rather than re-typed) and
+  translated the Personal Story and Company Philosophy sections into Traditional Chinese. Replaces all
+  placeholder copy from Batch 10. One correction made to a testimonial: "我的英文及**皺紋**得到很大的進步"
+  ("wrinkles") was a decoding artifact, not what the student wrote — changed to "作文" (writing), which
+  fits the sentence. Flagged to Dan directly; everything else is verbatim.
+- **`components/marketing/PersonalStorySection.tsx`** and **`PhilosophySection.tsx`** — new sections
+  using the real translated copy, each with `dan2.jpg`/`dan1.jpg` and a large, faint calligraphy-style
+  character behind the content (see below).
+- **`components/marketing/TestimonialsSection.tsx`** — the four real student/parent testimonials from
+  `WEBSITE_TEXT.rtf`, verbatim (with the one correction noted above).
+- **Calligraphy accent (`components/marketing/CalligraphyMark.tsx`)** — per Dan's request for "1–2
+  nicely traced Chinese characters." Deliberately **not** a generated image — a real brush-style Google
+  Font (Ma Shan Zheng, added to `app/layout.tsx`) rendering one large, low-opacity character per section,
+  each chosen to mean something about that section's content rather than as generic decoration: 旅
+  (journey) behind Personal Story, 心 (heart) behind Philosophy, 謝 (gratitude) behind Testimonials.
+- **`components/marketing/PhotoGallery.tsx`** — a "moments" gallery using 8 of the 13 provided
+  `web*.jpg` photos, resized/compressed into `public/photos/`. **Flag for Dan**: these are real,
+  identifiable people, some appearing to be minors — worth confirming you have the rights/consent to
+  publish them publicly before this goes live. The other 5 weren't used (kept the set to 8 for a clean
+  grid rather than a cluttered one — happy to swap any of the choices).
+- **`components/marketing/ProductShowcase.tsx`** — three real, cropped product screenshots (not
+  mockups): AI brainstorming, essay feedback/collaboration, and portfolio/grades. Cropped out browser
+  chrome and desktop backgrounds from the originals. **Missing**: a clean calendar screenshot — the
+  only calendar-adjacent files in the project had QA annotation arrows drawn on them, not fit for public
+  use. Send a clean one (or let me know to just capture a fresh screenshot from a test account) and I'll
+  add it as the fourth card.
+- **Homepage chatbot (`components/marketing/ChatWidget.tsx` + `app/api/chat/route.ts`)** — floating
+  widget, bottom-right, on the homepage only. Explains the platform, gives an approximate pricing range
+  when asked (see note below), and directs visitors to `/signup/agency` or `/signup/individual`. Email
+  capture is a **dedicated field in the widget itself, not parsed out of free chat text** — the model is
+  prompted to mention it once a conversation is going well, but the actual capture is a plain form field,
+  since text-parsing an email out of freeform chat is unreliable in both directions. Logged to a new
+  `chatbot_messages` table (`supabase/batch11_chatbot_leads.sql`) — append-only, same RLS pattern as
+  Batch 10's two tables (insert-only, no select policy; review in Supabase Dashboard → Table Editor,
+  grouped by `session_id`). Rate-limited to 60 messages/session/day, checked server-side before every AI
+  call, to bound cost on a route anyone on the internet can reach.
+  - **Pricing note**: the chatbot's pricing ranges (~USD $1,500–2,500/year agency licensing, ~USD
+    $150–300/year per student) come directly from your own `Native_English_Financial_Model.xlsx`
+    Assumptions sheet — your stated planning ranges, not numbers I invented. They're USD, and I did not
+    convert to TWD. Worth confirming these are still right, and what currency you want customer-facing,
+    before this goes live — same open question as the pricing page in Dan's feedback (#4), still not
+    built for the same reason: I don't want to publish a number you haven't explicitly signed off on.
+
 ## 🆕 Batch 10 — new feature: public homepage, founder hero, two sign-up paths
 
 **New feature. One new SQL patch (`supabase/batch10_public_inquiries.sql`), no changes to existing

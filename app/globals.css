@@ -5,6 +5,7 @@
 :root {
   --font-display: "Noto Serif TC", serif;
   --font-body: "Noto Sans TC", "Inter", sans-serif;
+  --font-calligraphy: "Ma Shan Zheng", "Noto Serif TC", serif;
 }
 
 html,
