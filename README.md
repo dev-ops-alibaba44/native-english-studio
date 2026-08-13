@@ -2,6 +2,55 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 10 — new feature: public homepage, founder hero, two sign-up paths
+
+**New feature. One new SQL patch (`supabase/batch10_public_inquiries.sql`), no changes to existing
+tables/RLS.** First real logged-out/public surface for the product — until now `/` was a placeholder
+(logo + one line + a login button), and there was no sign-up flow of any kind.
+
+**What's new**:
+- **Homepage (`app/page.tsx`)** rebuilt from scratch as an actual marketing page: founder-led hero,
+  a value-props grid, a static "explain the whole journey" version of the six-stage motif
+  (`components/marketing/StageThreadExplainer.tsx` — distinct from the existing `StageThread.tsx`,
+  which tracks one real application's current stage inside the portals), and an audience-split section
+  routing visitors to one of two sign-up paths. All new marketing components live under
+  `components/marketing/`, reusing the existing navy/red/beige tokens and Noto Serif TC / Noto Sans TC /
+  Inter pairing — no new design tokens added.
+- **Founder hero (`components/marketing/FounderHero.tsx`)** — per Dan's own priority order, the homepage
+  opens with the founder, not a generic headline. **All copy here is placeholder**, isolated in one
+  `FOUNDER` object at the top of the file for a quick swap: a drafted quote + bio (real marketing copy,
+  not final content) and an initial-monogram avatar in place of a real photo (`photoSrc: null` — set it to
+  a `/public` path once Dan sends a real one; deliberately not a stock photo standing in for him).
+- **Two separate sign-up paths**, confirmed with Dan as B2B2C — agencies and individuals get genuinely
+  different flows, not just different copy on the same form:
+  - **`/signup/agency`** — a real B2B lead-capture form (org name, contact, estimated student count,
+    message) writing to a new `agency_inquiries` table. This does **not** create an account — it's a
+    lead for Dan to follow up on manually, same as every existing account today (all hand-created in
+    Supabase per prior handoffs). A self-serve invite/account-creation flow is still a separate, later
+    piece of work.
+  - **`/signup/individual`** — a waitlist form (role, name, email, city, notes) writing to a new
+    `waitlist_signups` table. Deliberately **not** a working self-serve signup: the direct-to-parent tier
+    depends on parent auth and a `tier` field that don't exist yet (see "Known gaps" in `HANDOFF_4.md`),
+    so this honestly collects interest instead of faking functionality that isn't there.
+  - Both forms: symmetric client + server validation (`lib/public-form-validation.ts` is the single source
+    of truth for both, same pattern as `exam-score-bounds.ts`), a hidden honeypot field against bot spam,
+    and inline success/error states (no separate thank-you route).
+- **`app/actions/public.ts`** — the two server actions above. Both are reachable by anyone, signed in or
+  not, and deliberately use the regular anon-key client (`lib/supabase/server.ts`), **not** the admin
+  client — protection comes from RLS (insert-only, no select policy at all) exactly the way every other
+  table in this app is protected, not from trusting the caller.
+- **`supabase/batch10_public_inquiries.sql`** — creates `agency_inquiries` and `waitlist_signups`, RLS
+  enabled on both, `anon`/`authenticated` may `INSERT` only. No `SELECT` policy exists at all — for now,
+  review submissions via Supabase Dashboard → Table Editor (dashboard access uses the service role
+  internally, so it isn't blocked by this). **Run this patch before deploying this batch.**
+- **`components/marketing/SiteHeader.tsx` / `SiteFooter.tsx`** — shared header/footer across the homepage
+  and both sign-up pages; not used inside the three authenticated portals, which keep their existing
+  layouts untouched.
+
+**Not in this batch** (see `HANDOFF_4.md` "Known gaps" — still open): self-serve account creation/invite
+flow, Stripe connection, AI credit/tier system. This batch is the sign-up *entry points* Dan asked for;
+turning a submitted inquiry into an actual account is still a manual step today, same as it's always been.
+
 ## 🆕 Batch 9.20.4 — fix: fourth build error (`proxy.ts` missing `CookieOptions` type)
 
 **Bug fix, no new features, no SQL.**
