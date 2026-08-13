@@ -20,7 +20,8 @@ export function FounderHero() {
               <div className="font-display text-lg font-bold text-ink">
                 {FOUNDER.nameZh}
               </div>
-              <div className="text-sm text-slate">{FOUNDER.credentials}</div>
+              <div className="text-xs text-slate">{FOUNDER.nameEn}</div>
+              <div className="mt-0.5 text-sm text-slate">{FOUNDER.credentials}</div>
             </div>
           </div>
 

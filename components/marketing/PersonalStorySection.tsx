@@ -30,6 +30,7 @@ export function PersonalStorySection() {
             <div className="font-display text-base font-bold text-ink">
               {FOUNDER.nameZh}
             </div>
+            <div className="text-xs text-slate">{FOUNDER.nameEn}</div>
             <div className="mt-0.5 text-xs text-slate">
               {FOUNDER.credentials}
             </div>

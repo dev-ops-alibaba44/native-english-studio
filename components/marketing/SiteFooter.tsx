@@ -21,7 +21,7 @@ export function SiteFooter() {
             >
               info@nativeenglish.ca
             </a>
-            <div className="flex gap-4">
+            <div className="flex flex-wrap justify-end gap-x-4 gap-y-1">
               <Link href="/signup/agency" className="hover:text-brand">
                 機構方案洽詢
               </Link>
@@ -35,10 +35,22 @@ export function SiteFooter() {
           </div>
         </div>
 
-        <p className="mt-8 text-xs text-slate">
-          © {new Date().getFullYear()} Native English Studio. All rights
-          reserved.
-        </p>
+        <div className="mt-8 flex flex-col gap-3 border-t border-line pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-slate">
+            © 2026 Native English Ltd. All rights reserved.
+          </p>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate">
+            <Link href="/legal/privacy" className="hover:text-brand">
+              隱私權保護聲明
+            </Link>
+            <Link href="/legal/terms" className="hover:text-brand">
+              使用授權合約
+            </Link>
+            <Link href="/legal/disclaimer" className="hover:text-brand">
+              AI 內容免責聲明
+            </Link>
+          </div>
+        </div>
       </div>
     </footer>
   );

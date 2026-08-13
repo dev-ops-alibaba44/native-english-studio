@@ -2,6 +2,41 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 12 — homepage polish: real screenshots, legal pages, footer/name fixes
+
+**Content + small feature pass, no SQL.** Second round of homepage feedback. Still deliberately not
+touched: super-admin platform, automated sign-up/Stripe trial, onboarding flows — staying on the
+homepage until it's right, per Dan's note.
+
+- **Replaced the whole product showcase.** The old 3-image version (cropped from ad-hoc test
+  screenshots) is gone. `components/marketing/ProductShowcase.tsx` now uses the real
+  `Screenshot_01__Calendar.png` through `Screenshot_08__Sports.png` — all 8, laid out as a CSS
+  multi-column masonry (no JS, no carousel) since their aspect ratios vary naturally. One image
+  (`Screenshot_05__AI_Portfolio_feedback.png`) was cropped to cut off before the AI-generated
+  assessment text, which was flagging test-data quality problems ("TOEFL iBT 不可能達 1139999分")
+  — fine for QA, not for a public marketing page; the crop keeps the clean 學習檔案 overview + AI
+  綜合評估 intro without any of that.
+- **Founder's English name** now shown next to his Chinese name — `FOUNDER.nameEn` was already in
+  `lib/site-content.ts` from Batch 11 but never actually rendered; added to both `FounderHero.tsx` and
+  `PersonalStorySection.tsx`.
+- **Footer copyright fixed**: was defaulting to "Native English Studio" with a dynamic year; now reads
+  exactly `© 2026 Native English Ltd. All rights reserved.` per Dan (product name and legal entity name
+  are different things, and the copyright line should use the latter).
+- **Three legal documents drafted and published** (`lib/legal-content.ts`, rendered at
+  `/legal/privacy`, `/legal/terms`, `/legal/disclaimer`, linked from the footer): a Privacy Protection
+  Notice, a License Agreement (governing law/jurisdiction: BC, Canada, in English, per Dan), and an AI
+  Disclaimer (AS IS, no outcome guarantees). **One substantive change from what Dan asked for**: the
+  privacy notice cites BC's *Personal Information Protection Act* (PIPA), not the *Freedom of
+  Information and Protection of Privacy Act* (FOIPPA) Dan named — FOIPPA governs public bodies
+  (government, schools, universities) in BC, not private companies; PIPA is the correct statute for a
+  private BC corporation handling customer data. Flagged clearly to Dan; **none of this has been
+  reviewed by an actual lawyer** and shouldn't govern a real business collecting minors' data across two
+  countries until it has been.
+- **`components/marketing/LegalConsentCheckbox.tsx`** — a required checkbox ("I have read and
+  understood [the three documents]") added to both `/signup/agency` and `/signup/individual`, validated
+  both client-side and server-side (`app/actions/public.ts` now rejects a submission missing
+  `agreed_to_terms`). Built as a shared component so the real self-serve sign-up flow can reuse it later.
+
 ## 🆕 Batch 11 — homepage content pass: real copy/photos, product showcase, calligraphy, homepage chatbot
 
 **New feature + content pass. One new SQL patch (`supabase/batch11_chatbot_leads.sql`), no changes to

@@ -40,6 +40,7 @@ export async function submitAgencyInquiry(
   const city = ((formData.get("city") as string) || "").trim();
   const estimatedStudents = ((formData.get("estimated_students") as string) || "").trim();
   const message = ((formData.get("message") as string) || "").trim();
+  const agreedToTerms = (formData.get("agreed_to_terms") as string) === "yes";
 
   // Server-side backstop — mirrors the client-side required-field check
   // in AgencyInquiryForm.tsx. Never trust the client alone.
@@ -48,6 +49,9 @@ export async function submitAgencyInquiry(
   }
   if (!isValidEmail(contactEmail)) {
     return { success: false, error: "invalid_email" };
+  }
+  if (!agreedToTerms) {
+    return { success: false, error: "must_agree_to_terms" };
   }
 
   const supabase = await createClient();
@@ -81,12 +85,16 @@ export async function submitWaitlistSignup(
   const email = ((formData.get("email") as string) || "").trim();
   const city = ((formData.get("city") as string) || "").trim();
   const notes = ((formData.get("notes") as string) || "").trim();
+  const agreedToTerms = (formData.get("agreed_to_terms") as string) === "yes";
 
   if (!email || !isValidWaitlistRole(role)) {
     return { success: false, error: "missing_required_fields" };
   }
   if (!isValidEmail(email)) {
     return { success: false, error: "invalid_email" };
+  }
+  if (!agreedToTerms) {
+    return { success: false, error: "must_agree_to_terms" };
   }
 
   const supabase = await createClient();

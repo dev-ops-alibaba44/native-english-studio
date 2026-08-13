@@ -6,6 +6,7 @@ import {
   ESTIMATED_STUDENT_BANDS,
   isValidEmail,
 } from "@/lib/public-form-validation";
+import { LegalConsentCheckbox } from "./LegalConsentCheckbox";
 
 export function AgencyInquiryForm() {
   const [loading, setLoading] = useState(false);
@@ -31,6 +32,10 @@ export function AgencyInquiryForm() {
     }
     if (!isValidEmail(email)) {
       setError("請確認電子郵件格式是否正確。");
+      return;
+    }
+    if ((formData.get("agreed_to_terms") as string) !== "yes") {
+      setError("請先閱讀並勾選同意隱私權保護聲明、使用授權合約與 AI 內容免責聲明。");
       return;
     }
 
@@ -190,10 +195,14 @@ export function AgencyInquiryForm() {
         </p>
       )}
 
+      <div className="mt-5">
+        <LegalConsentCheckbox />
+      </div>
+
       <button
         type="submit"
         disabled={loading}
-        className="mt-6 w-full rounded bg-ink py-2.5 text-sm font-semibold text-white hover:bg-brand transition-colors disabled:opacity-60 sm:w-auto sm:px-8"
+        className="mt-4 w-full rounded bg-ink py-2.5 text-sm font-semibold text-white hover:bg-brand transition-colors disabled:opacity-60 sm:w-auto sm:px-8"
       >
         {loading ? "送出中…" : "送出洽詢"}
       </button>
