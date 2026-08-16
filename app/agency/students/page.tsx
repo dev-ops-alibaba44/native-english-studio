@@ -146,6 +146,12 @@ export default async function AgencyStudentsPage({
               <div className="flex items-center justify-between mb-3">
                 <div className="font-display font-bold text-base">{student.display_name}</div>
                 <div className="flex items-center gap-3">
+                  <a
+                    href={`/agency/students/${student.id}/identity`}
+                    className="text-xs text-brand underline"
+                  >
+                    基本資料
+                  </a>
                   <div className="text-xs text-slate">
                     所屬顧問：{advisorNameById.get(student.primary_advisor_id) || "尚未指派"}
                   </div>

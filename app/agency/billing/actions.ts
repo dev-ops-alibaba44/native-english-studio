@@ -57,6 +57,20 @@ export async function createCheckoutSession(formData: FormData) {
   const standardSeats = Math.max(0, Number(formData.get("standard_seats") || 0));
   const premiumSeats = Math.max(0, Number(formData.get("premium_seats") || 0));
 
+  // Batch 20: initial seats need an admission cycle too, same as seats
+  // added later via addSeats() — read by the webhook when it creates
+  // these seats' rows, via session/subscription metadata (a Checkout
+  // Session can't insert into our DB directly; the webhook does that
+  // once Stripe confirms payment).
+  const cycleEndYear = Math.floor(Number(formData.get("admission_cycle_end_year") || 0));
+  const currentYear = new Date().getFullYear();
+  if (
+    (standardSeats > 0 || premiumSeats > 0) &&
+    (!cycleEndYear || cycleEndYear < currentYear || cycleEndYear > currentYear + 6)
+  ) {
+    redirect(`/agency/billing?error=invalid_admission_cycle`);
+  }
+
   if (!process.env.STRIPE_SECRET_KEY || !STRIPE_PRICE_LICENSE) {
     redirect(`/agency/billing?error=stripe_not_configured`);
   }
@@ -74,6 +88,9 @@ export async function createCheckoutSession(formData: FormData) {
   const session = await getStripe().checkout.sessions.create({
     mode: "subscription",
     line_items,
+    // Batch: force Traditional Chinese regardless of the browser's
+    // language — Stripe was defaulting to English for Dan's test browser.
+    locale: "zh-TW",
     client_reference_id: agency.id,
     customer: agency.stripe_customer_id || undefined,
     customer_email: agency.stripe_customer_id ? undefined : user.email || undefined,
@@ -86,7 +103,10 @@ export async function createCheckoutSession(formData: FormData) {
       trial_period_days: 7,
       metadata: { agency_id: agency.id },
     },
-    metadata: { agency_id: agency.id },
+    metadata: {
+      agency_id: agency.id,
+      admission_cycle_end_year: cycleEndYear ? String(cycleEndYear) : "",
+    },
     success_url: `${SITE_URL}/agency/billing?checkout=success`,
     cancel_url: `${SITE_URL}/agency/billing?checkout=canceled`,
   });
@@ -111,6 +131,7 @@ export async function createPortalSession() {
 
   const session = await getStripe().billingPortal.sessions.create({
     customer: agency.stripe_customer_id,
+    locale: "zh-TW",
     return_url: `${SITE_URL}/agency/billing`,
   });
 

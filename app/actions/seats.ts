@@ -9,6 +9,7 @@ import {
   STRIPE_PRICE_SEAT_STANDARD,
   STRIPE_PRICE_SEAT_PREMIUM,
 } from "@/lib/stripe";
+import { admissionCycleExpiry } from "@/lib/seats";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -64,6 +65,19 @@ export async function addSeats(formData: FormData) {
   const standardToAdd = Math.max(0, Math.floor(Number(formData.get("standard_to_add") || 0)));
   const premiumToAdd = Math.max(0, Math.floor(Number(formData.get("premium_to_add") || 0)));
 
+  // Batch 20: every seat now needs to know which admission cycle it's
+  // for, so its expiry can be pinned to the real August 31 boundary
+  // instead of "365 days from whenever this was bought." One cycle
+  // applies to everything added in a single submission — if an agency
+  // needs different cycles for different seats, they add seats in
+  // separate submissions.
+  const cycleEndYear = Math.floor(Number(formData.get("admission_cycle_end_year") || 0));
+  const currentYear = new Date().getFullYear();
+  if (!cycleEndYear || cycleEndYear < currentYear || cycleEndYear > currentYear + 6) {
+    redirect("/agency/billing?error=invalid_admission_cycle");
+  }
+  const expiresAt = admissionCycleExpiry(cycleEndYear).toISOString();
+
   if (standardToAdd === 0 && premiumToAdd === 0) {
     redirect("/agency/billing?error=nothing_to_add");
   }
@@ -99,12 +113,56 @@ export async function addSeats(formData: FormData) {
       seat_type: type,
       status: "unused" as const,
       stripe_subscription_item_id: subscriptionItemId,
+      admission_cycle_end_year: cycleEndYear,
+      expires_at: expiresAt,
     }));
     await admin.from("seats").insert(newSeatRows);
   }
 
   revalidatePath("/agency/billing");
   redirect("/agency/billing?seat_action=added");
+}
+
+// ---------------------------------------------------------------------
+// Set (or correct) the admission cycle on a seat that doesn't have one
+// yet — legacy seats from before Batch 20, still running on the old
+// purchased_at+365-days expires_at. Only allowed while the seat is
+// 'unused', same reasoning as every other "still deciding" window in
+// this system: once real work starts, the seat and its cycle are locked
+// in together.
+// ---------------------------------------------------------------------
+export async function setAdmissionCycle(seatId: string, formData: FormData) {
+  const { agencyId } = await requireAgencyAdminWithSubscription();
+  const admin = createAdminClient();
+
+  const cycleEndYear = Math.floor(Number(formData.get("admission_cycle_end_year") || 0));
+  const currentYear = new Date().getFullYear();
+  if (!cycleEndYear || cycleEndYear < currentYear || cycleEndYear > currentYear + 6) {
+    redirect("/agency/billing?error=invalid_admission_cycle");
+  }
+
+  const { data: seat } = await admin
+    .from("seats")
+    .select("id, agency_id, status")
+    .eq("id", seatId)
+    .maybeSingle();
+  if (!seat || seat.agency_id !== agencyId) {
+    redirect("/agency/billing?error=seat_not_found");
+  }
+  if (seat!.status !== "unused") {
+    redirect("/agency/billing?error=seat_not_upgradable");
+  }
+
+  await admin
+    .from("seats")
+    .update({
+      admission_cycle_end_year: cycleEndYear,
+      expires_at: admissionCycleExpiry(cycleEndYear).toISOString(),
+    })
+    .eq("id", seatId);
+
+  revalidatePath("/agency/billing");
+  redirect("/agency/billing?seat_action=cycle_set");
 }
 
 // ---------------------------------------------------------------------
@@ -219,7 +277,17 @@ export async function upgradeSeat(seatId: string) {
 
   await admin
     .from("seats")
-    .update({ seat_type: "premium", stripe_subscription_item_id: premiumItemId })
+    .update({
+      seat_type: "premium",
+      stripe_subscription_item_id: premiumItemId,
+      // Batch: upgrading is a deliberate purchase decision — per Dan,
+      // once upgraded there's no backing out via the unused/7-day cancel
+      // window, even if the seat is technically still untouched and
+      // still inside its original 7 days. Forcing status to 'active'
+      // here (not just changing seat_type) is what actually removes
+      // eligibility, since cancelSeat only allows status === 'unused'.
+      status: "active",
+    })
     .eq("id", seatId);
 
   revalidatePath("/agency/billing");

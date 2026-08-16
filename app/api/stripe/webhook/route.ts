@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe, STRIPE_PRICE_SEAT_STANDARD, STRIPE_PRICE_SEAT_PREMIUM } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { admissionCycleExpiry } from "@/lib/seats";
 
 // Stripe requires the raw request body (unparsed) to verify the signature,
 // so this route must NOT run any body-parsing middleware. App Router route
@@ -112,11 +113,18 @@ export async function POST(req: NextRequest) {
           .eq("agency_id", agencyId);
 
         if (!existingSeatCount || existingSeatCount === 0) {
+          const cycleEndYearRaw = session.metadata?.admission_cycle_end_year;
+          const cycleEndYear = cycleEndYearRaw ? Number(cycleEndYearRaw) : null;
+          const cycleExpiresAt =
+            cycleEndYear && cycleEndYear > 0 ? admissionCycleExpiry(cycleEndYear).toISOString() : null;
+
           const seatRows: {
             agency_id: string;
             seat_type: "standard" | "premium";
             status: "unused";
             stripe_subscription_item_id: string | undefined;
+            admission_cycle_end_year: number | null;
+            expires_at?: string;
           }[] = [];
           for (const item of subscription.items.data) {
             const priceId = typeof item.price === "string" ? item.price : item.price?.id;
@@ -127,6 +135,8 @@ export async function POST(req: NextRequest) {
                   seat_type: "standard",
                   status: "unused",
                   stripe_subscription_item_id: item.id,
+                  admission_cycle_end_year: cycleEndYear,
+                  ...(cycleExpiresAt ? { expires_at: cycleExpiresAt } : {}),
                 });
               }
             }
@@ -137,6 +147,8 @@ export async function POST(req: NextRequest) {
                   seat_type: "premium",
                   status: "unused",
                   stripe_subscription_item_id: item.id,
+                  admission_cycle_end_year: cycleEndYear,
+                  ...(cycleExpiresAt ? { expires_at: cycleExpiresAt } : {}),
                 });
               }
             }

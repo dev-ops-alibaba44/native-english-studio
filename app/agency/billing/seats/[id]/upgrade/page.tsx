@@ -45,6 +45,9 @@ export default async function UpgradeSeatConfirmPage({
             <b>席次只能升級，永遠無法降級。</b>
             一旦從標準席次升級為進階席次，將無法再改回標準席次——沒有例外，即使日後想要降低費用也一樣。
           </li>
+          <li>
+            <b>升級後，此席次會立即視為「已購買、已生效」，即使原本還在 7 天鑑賞期內、且完全尚未使用，升級後也無法再取消或退款。</b>
+          </li>
           <li>升級會依剩餘訂閱期間比例計費，並立即從您的付款方式扣款。</li>
         </ul>
         <form action={upgradeSeat.bind(null, seatId)} className="flex items-center gap-3">
