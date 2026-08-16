@@ -2,6 +2,54 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 13 — super-user platform (view-only oversight) + lighter marketing role
+
+**New feature. Two SQL files, run in order** — `supabase/batch13a_add_roles.sql` first, by itself, then
+`supabase/batch13b_super_admin_rls.sql` second. They're split because Postgres won't let a brand-new enum
+value be *used* in the same transaction that adds it, and Supabase's SQL editor runs a pasted script as
+one implicit transaction — pasting both halves together would fail partway through.
+
+**Two new roles**:
+- **`super_admin`** — Dan's own account. Read-only across almost everything in the app (every agency,
+  every student's applications/drafts/comments/grades/activities/AI usage) — explicitly **no write
+  access** to anything a student/advisor/agency owns, per Dan's requirement to view but never edit a
+  student's own work. The one thing super_admin *can* write is a small set of manually-tracked billing
+  fields on `agencies` (plan status, annual fee, notes) — a stop-gap until Stripe is connected.
+- **`marketing`** — the future hire's lighter account. Read + status-update access to the three lead
+  tables only (`agency_inquiries`, `waitlist_signups`, `chatbot_messages`). Nothing else — no student
+  data, no billing, no agency list. Lives at `/marketing`, sharing the same `LeadsBoard` component as
+  the super-admin leads page so there's one implementation to maintain, not two.
+
+**Pages** (`/super-admin/*`, hard role-gated in `layout.tsx` — not just RLS-scoped like the other three
+portals, since this area can see everyone's data if misrouted):
+- **總覽** — agency/student/advisor counts, open-lead count.
+- **機構列表 → 機構詳情** — every agency, seat counts, and a manual plan-status/annual-fee/notes editor
+  (stop-gap billing tracking until Stripe). Drills into each agency's student list.
+- **學生詳情 → 申請詳情** — click into any student's applications; each one shows the stage thread, the
+  latest saved draft content, and comments, all rendered plain and **read-only** — no editor, no save
+  button, no comment box. Reuses the existing `drafts`/`comments` tables (the last-saved snapshot, not
+  the live Liveblocks session — simpler and avoids touching real-time room permissions for this).
+- **個人訂閱** — honestly empty right now: says plainly that this needs parent auth + Stripe first,
+  neither of which exist yet, rather than showing fake data. Links to the waitlist as the closest current
+  proxy.
+- **AI 使用量與成本** — counts from your own logs (`ai_feedback_log`, `brainstorm_usage_log`,
+  `profile_assessment_log`, chatbot turns) plus real Anthropic org-wide spend via the Admin API (see
+  below), with a clearly-labeled rough margin estimate against manually-entered agency fees. Degrades
+  gracefully to a "not configured yet" message if `ANTHROPIC_ADMIN_API_KEY` isn't set.
+- **問題與行銷名單** — all three lead sources in one place, with an inline status dropdown
+  (新進/已聯繫/已成交/婉拒) per lead.
+
+**`lib/anthropic-admin.ts`** — calls Anthropic's Usage & Cost Admin API (`/v1/organizations/cost_report`),
+using a **separate** credential (`ANTHROPIC_ADMIN_API_KEY`, starts with `sk-ant-admin...`) from the
+regular `ANTHROPIC_API_KEY` used for chat completions — one can only read org spend, the other can only
+make completions. **Caveat, stated in the file itself**: written against Anthropic's documented
+request/response shapes, but there was no real Admin API key available to test against while building
+this — if the live response's exact field names differ from what's parsed here, that's a small, isolated
+fix in `sumCostReport`'s parsing, not a redesign.
+
+**How to get the Admin API key** — walked through in the message accompanying this batch, not repeated
+here since it involves account-specific steps in the Anthropic Console.
+
 ## 🆕 Batch 12 — homepage polish: real screenshots, legal pages, footer/name fixes
 
 **Content + small feature pass, no SQL.** Second round of homepage feedback. Still deliberately not
