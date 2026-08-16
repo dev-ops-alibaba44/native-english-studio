@@ -42,6 +42,18 @@ async function requireAgencyAdmin() {
 export async function createCheckoutSession(formData: FormData) {
   const { user, agency } = await requireAgencyAdmin();
 
+  // SAFETY STOPGAP (added after a real double-billing incident in testing):
+  // this function creates a brand-new Checkout Session, which means a brand
+  // new subscription — including the license line item again. It must only
+  // ever run for an agency's FIRST subscription. Once an agency already has
+  // a subscription, seat changes have to modify that existing subscription
+  // instead (proper seat-lifecycle rules — add/upgrade/cancel-within-7-days
+  // — are coming in a follow-up batch). Until that ships, block this path
+  // entirely for already-subscribed agencies rather than risk a repeat.
+  if (agency.stripe_subscription_id) {
+    redirect(`/agency/billing?error=use_add_seats_soon`);
+  }
+
   const standardSeats = Math.max(0, Number(formData.get("standard_seats") || 0));
   const premiumSeats = Math.max(0, Number(formData.get("premium_seats") || 0));
 

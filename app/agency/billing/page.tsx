@@ -19,6 +19,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   stripe_not_configured: "付款系統尚未設定完成，請聯絡系統管理者設定 Stripe 價格 ID。",
   checkout_failed: "無法建立付款頁面，請稍後再試。",
   no_subscription_yet: "尚未有訂閱紀錄，請先完成一次付款設定。",
+  use_add_seats_soon:
+    "席次調整功能正在改版中，暫時請透過 info@nativeenglish.ca 聯絡我們調整席次，避免重複扣款。",
 };
 
 function formatCents(amount: number | null, currency: string | null) {
@@ -130,34 +132,41 @@ export default async function AgencyBillingPage({
           </div>
         </div>
 
-        <form action={createCheckoutSession} className="flex flex-wrap items-end gap-3 mb-3">
-          <div>
-            <label className="block text-xs font-medium text-slate mb-1">標準席次數量</label>
-            <input
-              name="standard_seats"
-              type="number"
-              min={0}
-              defaultValue={agency?.standard_seats || students.length}
-              className="w-28 rounded border border-line px-2 py-1.5 text-sm"
-            />
+        {isConnected ? (
+          <div className="rounded border border-line bg-slate-light/40 px-4 py-3 text-sm text-slate mb-3">
+            席次調整（新增、升級、7 天內取消）功能即將推出。目前如需調整席次數量，請聯絡
+            info@nativeenglish.ca，由我們手動處理，避免系統重複建立訂閱造成重複扣款。
           </div>
-          <div>
-            <label className="block text-xs font-medium text-slate mb-1">進階席次數量</label>
-            <input
-              name="premium_seats"
-              type="number"
-              min={0}
-              defaultValue={agency?.premium_seats || 0}
-              className="w-28 rounded border border-line px-2 py-1.5 text-sm"
-            />
-          </div>
-          <button
-            type="submit"
-            className="rounded bg-ink px-4 py-2 text-sm font-semibold text-white"
-          >
-            {isConnected ? "更新方案 / 席次" : "開始訂閱"}
-          </button>
-        </form>
+        ) : (
+          <form action={createCheckoutSession} className="flex flex-wrap items-end gap-3 mb-3">
+            <div>
+              <label className="block text-xs font-medium text-slate mb-1">標準席次數量</label>
+              <input
+                name="standard_seats"
+                type="number"
+                min={0}
+                defaultValue={agency?.standard_seats || students.length}
+                className="w-28 rounded border border-line px-2 py-1.5 text-sm"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate mb-1">進階席次數量</label>
+              <input
+                name="premium_seats"
+                type="number"
+                min={0}
+                defaultValue={agency?.premium_seats || 0}
+                className="w-28 rounded border border-line px-2 py-1.5 text-sm"
+              />
+            </div>
+            <button
+              type="submit"
+              className="rounded bg-ink px-4 py-2 text-sm font-semibold text-white"
+            >
+              開始訂閱
+            </button>
+          </form>
+        )}
 
         {isConnected && (
           <form action={createPortalSession}>
