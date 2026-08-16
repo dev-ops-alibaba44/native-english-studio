@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthropic";
+import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
 
 export interface BrainstormMessage {
   role: "user" | "assistant";
@@ -74,6 +75,13 @@ export async function brainstormReply(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
+
+  try {
+    await assertSeatActive(user.id);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
 
   const withinQuota = await checkAndLogQuota(user.id);
   if (!withinQuota) return { success: false, error: "daily_limit_reached" };

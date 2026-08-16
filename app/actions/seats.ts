@@ -1,0 +1,298 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  getStripe,
+  STRIPE_PRICE_SEAT_STANDARD,
+  STRIPE_PRICE_SEAT_PREMIUM,
+} from "@/lib/stripe";
+
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+async function requireAgencyAdminWithSubscription() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role, agency_id")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile || profile.role !== "agency_admin" || !profile.agency_id) {
+    throw new Error("Only an agency admin can manage seats.");
+  }
+
+  const { data: agency } = await supabase
+    .from("agencies")
+    .select("id, stripe_subscription_id")
+    .eq("id", profile.agency_id)
+    .single();
+
+  if (!agency?.stripe_subscription_id) {
+    redirect("/agency/billing?error=no_subscription_yet");
+  }
+
+  return { agencyId: profile.agency_id, subscriptionId: agency!.stripe_subscription_id! };
+}
+
+// Finds the subscription item for a given price, or null if that price
+// isn't on the subscription yet (e.g. an agency that never bought a
+// premium seat before now).
+async function findSubscriptionItem(subscriptionId: string, priceId: string) {
+  const subscription = await getStripe().subscriptions.retrieve(subscriptionId);
+  return subscription.items.data.find((item) => {
+    const id = typeof item.price === "string" ? item.price : item.price?.id;
+    return id === priceId;
+  });
+}
+
+// ---------------------------------------------------------------------
+// Add seats — the ONLY quantity-increasing path. No decrease is ever
+// exposed anywhere in the UI; this is intentional, per Dan.
+// ---------------------------------------------------------------------
+export async function addSeats(formData: FormData) {
+  const { agencyId, subscriptionId } = await requireAgencyAdminWithSubscription();
+  const admin = createAdminClient();
+
+  const standardToAdd = Math.max(0, Math.floor(Number(formData.get("standard_to_add") || 0)));
+  const premiumToAdd = Math.max(0, Math.floor(Number(formData.get("premium_to_add") || 0)));
+
+  if (standardToAdd === 0 && premiumToAdd === 0) {
+    redirect("/agency/billing?error=nothing_to_add");
+  }
+
+  const additions: { type: "standard" | "premium"; count: number; priceId: string }[] = [];
+  if (standardToAdd > 0) additions.push({ type: "standard", count: standardToAdd, priceId: STRIPE_PRICE_SEAT_STANDARD });
+  if (premiumToAdd > 0) additions.push({ type: "premium", count: premiumToAdd, priceId: STRIPE_PRICE_SEAT_PREMIUM });
+
+  for (const { type, count, priceId } of additions) {
+    if (!priceId) redirect("/agency/billing?error=stripe_not_configured");
+
+    const existingItem = await findSubscriptionItem(subscriptionId, priceId);
+    let subscriptionItemId: string;
+
+    if (existingItem) {
+      const updated = await getStripe().subscriptionItems.update(existingItem.id, {
+        quantity: (existingItem.quantity || 0) + count,
+        proration_behavior: "create_prorations",
+      });
+      subscriptionItemId = updated.id;
+    } else {
+      const created = await getStripe().subscriptionItems.create({
+        subscription: subscriptionId,
+        price: priceId,
+        quantity: count,
+        proration_behavior: "create_prorations",
+      });
+      subscriptionItemId = created.id;
+    }
+
+    const newSeatRows = Array.from({ length: count }).map(() => ({
+      agency_id: agencyId,
+      seat_type: type,
+      status: "unused" as const,
+      stripe_subscription_item_id: subscriptionItemId,
+    }));
+    await admin.from("seats").insert(newSeatRows);
+  }
+
+  revalidatePath("/agency/billing");
+  redirect("/agency/billing?seat_action=added");
+}
+
+// ---------------------------------------------------------------------
+// Cancel a seat — ONLY allowed within 7 days of purchase AND only if the
+// seat has never been used (status still 'unused'). This is the sole
+// cancellation path; there is no cancellation after that window, ever.
+// ---------------------------------------------------------------------
+export async function cancelSeat(seatId: string) {
+  const { agencyId, subscriptionId } = await requireAgencyAdminWithSubscription();
+  const admin = createAdminClient();
+
+  const { data: seat } = await admin
+    .from("seats")
+    .select("id, agency_id, seat_type, status, purchased_at, stripe_subscription_item_id")
+    .eq("id", seatId)
+    .maybeSingle();
+
+  if (!seat || seat.agency_id !== agencyId) {
+    redirect("/agency/billing?error=seat_not_found");
+  }
+  if (seat!.status !== "unused") {
+    redirect("/agency/billing?error=seat_not_cancelable");
+  }
+  const ageMs = Date.now() - new Date(seat!.purchased_at).getTime();
+  if (ageMs > SEVEN_DAYS_MS) {
+    redirect("/agency/billing?error=seat_cancel_window_passed");
+  }
+
+  if (seat!.stripe_subscription_item_id) {
+    const item = await getStripe().subscriptionItems.retrieve(seat!.stripe_subscription_item_id);
+    const newQty = Math.max(0, (item.quantity || 1) - 1);
+    if (newQty === 0) {
+      await getStripe().subscriptionItems.del(item.id, { proration_behavior: "create_prorations" });
+    } else {
+      await getStripe().subscriptionItems.update(item.id, {
+        quantity: newQty,
+        proration_behavior: "create_prorations",
+      });
+    }
+  }
+
+  await admin.from("seats").update({ status: "canceled" }).eq("id", seatId);
+
+  revalidatePath("/agency/billing");
+  redirect("/agency/billing?seat_action=canceled");
+}
+
+// ---------------------------------------------------------------------
+// Upgrade standard -> premium. Allowed regardless of use (Dan confirmed:
+// "any standard seat, used or not, can upgrade anytime"). Downgrade is
+// never exposed as an action anywhere in the app.
+// ---------------------------------------------------------------------
+export async function upgradeSeat(seatId: string) {
+  const { agencyId, subscriptionId } = await requireAgencyAdminWithSubscription();
+  const admin = createAdminClient();
+
+  const { data: seat } = await admin
+    .from("seats")
+    .select("id, agency_id, seat_type, status, stripe_subscription_item_id")
+    .eq("id", seatId)
+    .maybeSingle();
+
+  if (!seat || seat.agency_id !== agencyId) {
+    redirect("/agency/billing?error=seat_not_found");
+  }
+  if (seat!.seat_type !== "standard") {
+    redirect("/agency/billing?error=already_premium");
+  }
+  if (seat!.status === "archived" || seat!.status === "canceled" || seat!.status === "expired") {
+    redirect("/agency/billing?error=seat_not_upgradable");
+  }
+  if (!STRIPE_PRICE_SEAT_PREMIUM) {
+    redirect("/agency/billing?error=stripe_not_configured");
+  }
+
+  // Decrement the standard item by one.
+  if (seat!.stripe_subscription_item_id) {
+    const standardItem = await getStripe().subscriptionItems.retrieve(
+      seat!.stripe_subscription_item_id
+    );
+    const newQty = Math.max(0, (standardItem.quantity || 1) - 1);
+    if (newQty === 0) {
+      await getStripe().subscriptionItems.del(standardItem.id, {
+        proration_behavior: "create_prorations",
+      });
+    } else {
+      await getStripe().subscriptionItems.update(standardItem.id, {
+        quantity: newQty,
+        proration_behavior: "create_prorations",
+      });
+    }
+  }
+
+  // Increment (or create) the premium item by one.
+  const existingPremiumItem = await findSubscriptionItem(subscriptionId, STRIPE_PRICE_SEAT_PREMIUM);
+  let premiumItemId: string;
+  if (existingPremiumItem) {
+    const updated = await getStripe().subscriptionItems.update(existingPremiumItem.id, {
+      quantity: (existingPremiumItem.quantity || 0) + 1,
+      proration_behavior: "create_prorations",
+    });
+    premiumItemId = updated.id;
+  } else {
+    const created = await getStripe().subscriptionItems.create({
+      subscription: subscriptionId,
+      price: STRIPE_PRICE_SEAT_PREMIUM,
+      quantity: 1,
+      proration_behavior: "create_prorations",
+    });
+    premiumItemId = created.id;
+  }
+
+  await admin
+    .from("seats")
+    .update({ seat_type: "premium", stripe_subscription_item_id: premiumItemId })
+    .eq("id", seatId);
+
+  revalidatePath("/agency/billing");
+  redirect("/agency/billing?seat_action=upgraded");
+}
+
+// ---------------------------------------------------------------------
+// Assign an unused seat to an existing student profile in this agency.
+// (A proper invite/account-creation flow is a separate known gap — this
+// is the connection point it will eventually call into.)
+// ---------------------------------------------------------------------
+export async function assignSeat(formData: FormData) {
+  const { agencyId } = await requireAgencyAdminWithSubscription();
+  const admin = createAdminClient();
+
+  const seatId = formData.get("seat_id") as string;
+  const studentId = formData.get("student_id") as string;
+  if (!seatId || !studentId) {
+    redirect("/agency/students?error=missing_fields");
+  }
+
+  const { data: seat } = await admin
+    .from("seats")
+    .select("id, agency_id, assigned_student_id, status")
+    .eq("id", seatId)
+    .maybeSingle();
+  if (!seat || seat.agency_id !== agencyId || seat.assigned_student_id) {
+    redirect("/agency/students?error=seat_unavailable");
+  }
+
+  const { data: student } = await admin
+    .from("profiles")
+    .select("id, agency_id, role")
+    .eq("id", studentId)
+    .maybeSingle();
+  if (!student || student.agency_id !== agencyId || student.role !== "student") {
+    redirect("/agency/students?error=student_not_found");
+  }
+
+  await admin.from("seats").update({ assigned_student_id: studentId }).eq("id", seatId);
+
+  revalidatePath("/agency/students");
+  redirect("/agency/students?success=1");
+}
+
+// ---------------------------------------------------------------------
+// Archive a student. Never a delete. The seat does NOT free up — per
+// Dan's explicit instruction, if the agency wants to work with a
+// different student, they buy a new seat.
+// ---------------------------------------------------------------------
+export async function archiveStudent(studentId: string) {
+  const { agencyId } = await requireAgencyAdminWithSubscription();
+  const admin = createAdminClient();
+
+  const { data: student } = await admin
+    .from("profiles")
+    .select("id, agency_id, role")
+    .eq("id", studentId)
+    .maybeSingle();
+  if (!student || student.agency_id !== agencyId || student.role !== "student") {
+    redirect("/agency/students?error=student_not_found");
+  }
+
+  await admin
+    .from("profiles")
+    .update({ is_archived: true, archived_at: new Date().toISOString() })
+    .eq("id", studentId);
+
+  await admin
+    .from("seats")
+    .update({ status: "archived" })
+    .eq("assigned_student_id", studentId);
+
+  revalidatePath("/agency/students");
+  redirect("/agency/students?success=archived");
+}

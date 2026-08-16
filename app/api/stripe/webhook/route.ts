@@ -98,6 +98,53 @@ export async function POST(req: NextRequest) {
             current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
           })
           .eq("id", agencyId);
+
+        // Batch 18: create the individual seat rows behind these counts,
+        // one per unit purchased — only on an agency's FIRST subscription
+        // (checked via the seats table being empty), since every seat
+        // added after this point goes through app/actions/seats.ts's
+        // addSeats(), which inserts its own rows at the time of purchase.
+        // Guards against double-inserting rows if Stripe retries this
+        // webhook event.
+        const { count: existingSeatCount } = await admin
+          .from("seats")
+          .select("id", { count: "exact", head: true })
+          .eq("agency_id", agencyId);
+
+        if (!existingSeatCount || existingSeatCount === 0) {
+          const seatRows: {
+            agency_id: string;
+            seat_type: "standard" | "premium";
+            status: "unused";
+            stripe_subscription_item_id: string | undefined;
+          }[] = [];
+          for (const item of subscription.items.data) {
+            const priceId = typeof item.price === "string" ? item.price : item.price?.id;
+            if (priceId === STRIPE_PRICE_SEAT_STANDARD) {
+              for (let i = 0; i < (item.quantity || 0); i++) {
+                seatRows.push({
+                  agency_id: agencyId,
+                  seat_type: "standard",
+                  status: "unused",
+                  stripe_subscription_item_id: item.id,
+                });
+              }
+            }
+            if (priceId === STRIPE_PRICE_SEAT_PREMIUM) {
+              for (let i = 0; i < (item.quantity || 0); i++) {
+                seatRows.push({
+                  agency_id: agencyId,
+                  seat_type: "premium",
+                  status: "unused",
+                  stripe_subscription_item_id: item.id,
+                });
+              }
+            }
+          }
+          if (seatRows.length > 0) {
+            await admin.from("seats").insert(seatRows);
+          }
+        }
         break;
       }
 

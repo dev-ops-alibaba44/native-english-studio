@@ -4,6 +4,7 @@ import { StageThread } from "@/components/StageThread";
 import { type Stage } from "@/lib/stages";
 import { createApplicationFor } from "@/app/actions/applications";
 import { sortApplicationsByDeadline, sortStudentsByDeadline } from "@/lib/deadlines";
+import { archiveStudent, assignSeat } from "@/app/actions/seats";
 
 const ERROR_MESSAGES: Record<string, string> = {
   missing_school_name: "請輸入學校名稱。",
@@ -11,6 +12,9 @@ const ERROR_MESSAGES: Record<string, string> = {
   school_failed: "無法建立學校資料，請稍後再試。",
   duplicate_school: "這位學生已經新增過這間學校的申請了。",
   application_failed: "無法建立申請項目，請稍後再試。",
+  missing_fields: "請選擇席次與學生。",
+  seat_unavailable: "此席次已被使用或不存在。",
+  student_not_found: "找不到這位學生。",
 };
 
 export default async function AgencyStudentsPage({
@@ -48,6 +52,20 @@ export default async function AgencyStudentsPage({
   const { data: studentsRaw } = await studentsQuery;
   const sortByDeadline = sort === "deadline";
   const students = sortByDeadline ? sortStudentsByDeadline(studentsRaw || []) : studentsRaw || [];
+
+  // Batch 18: seat status per student, and any unassigned seats an admin
+  // could hand out — read via the RLS-scoped client like everything else
+  // on this page.
+  const { data: seatsRaw } = await supabase
+    .from("seats")
+    .select("id, seat_type, status, assigned_student_id")
+    .eq("agency_id", profile.agency_id);
+  const seatByStudentId = new Map(
+    (seatsRaw || []).filter((s) => s.assigned_student_id).map((s) => [s.assigned_student_id, s])
+  );
+  const unassignedSeats = (seatsRaw || []).filter(
+    (s) => !s.assigned_student_id && s.status === "unused"
+  );
 
   // Preserve the advisor filter (if any) when switching sort mode.
   const sortLinkSuffix = advisorFilter ? `&advisor=${advisorFilter}` : "";
@@ -118,12 +136,60 @@ export default async function AgencyStudentsPage({
               student.id,
               "/agency/students"
             );
+            const seat = seatByStudentId.get(student.id);
             return (
             <div key={student.id} className="rounded border border-line bg-surface shadow-card p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="font-display font-bold text-base">{student.display_name}</div>
-                <div className="text-xs text-slate">
-                  所屬顧問：{advisorNameById.get(student.primary_advisor_id) || "尚未指派"}
+                <div className="flex items-center gap-3">
+                  <div className="text-xs text-slate">
+                    所屬顧問：{advisorNameById.get(student.primary_advisor_id) || "尚未指派"}
+                  </div>
+                  {!seat && unassignedSeats.length > 0 && (
+                    <form action={assignSeat} className="flex items-center gap-1">
+                      <input type="hidden" name="student_id" value={student.id} />
+                      <select
+                        name="seat_id"
+                        className="rounded border border-line px-2 py-1 text-xs"
+                        defaultValue=""
+                      >
+                        <option value="" disabled>
+                          指派席次
+                        </option>
+                        {unassignedSeats.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.seat_type === "premium" ? "進階席次" : "標準席次"}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="submit" className="text-xs text-brand underline">
+                        指派
+                      </button>
+                    </form>
+                  )}
+                  {!seat && unassignedSeats.length === 0 && (
+                    <span className="text-xs text-danger">尚未分配席次</span>
+                  )}
+                  {seat && (
+                    <span className="text-xs text-slate">
+                      {seat.seat_type === "premium" ? "進階席次" : "標準席次"} ·{" "}
+                      {seat.status === "expired"
+                        ? "已到期（唯讀）"
+                        : seat.status === "archived"
+                          ? "已封存（唯讀）"
+                          : "使用中"}
+                    </span>
+                  )}
+                  {!student.is_archived && (
+                    <form action={archiveStudent.bind(null, student.id)}>
+                      <button type="submit" className="text-xs text-slate underline">
+                        封存學生
+                      </button>
+                    </form>
+                  )}
+                  {student.is_archived && (
+                    <span className="text-xs font-semibold text-slate">已封存</span>
+                  )}
                 </div>
               </div>
               {(!student.applications || student.applications.length === 0) && (

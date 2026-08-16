@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthropic";
 import { getLiveblocksServerClient, AI_FEEDBACK_USER_ID } from "@/lib/liveblocks-server";
 import { MONTHLY_ESSAY_FEEDBACK_LIMIT } from "@/lib/ai-limits";
+import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
 
 function periodStart(): Date {
   const d = new Date();
@@ -72,6 +73,13 @@ export async function generateEssayFeedback(
     .eq("id", applicationId)
     .maybeSingle();
   if (!application) return { success: false, error: "not_authorized" };
+
+  try {
+    await assertSeatActive(application.student_id);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
 
   const { used, limit } = await getEssayFeedbackUsage(application.student_id);
   if (used >= limit) return { success: false, error: "monthly_limit_reached" };
