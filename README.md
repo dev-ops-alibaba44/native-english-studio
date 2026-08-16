@@ -2,6 +2,30 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 15 — fix: super-admin logo was still using the beige-background file
+
+**One-line fix, aesthetic only.** Batch 14 fixed the gradient but swapped the logo to the wrong file —
+`/logo.png` and `/logo-white.png` are named confusingly: **`logo.png` has a beige (`#FAF8F5`) background
+baked in** (by design — it matches the beige page background used on the marketing site and login page),
+while **`logo-white.png` is the one with an actual pure-white (`#FFFFFF`) background**, despite the name
+suggesting the opposite. Confirmed by checking each file's corner pixel directly rather than guessing from
+the filename. `app/super-admin/layout.tsx` now uses `/logo-white.png` again, which sits correctly on the
+header's white-to-navy gradient from Batch 14. No other page needed touching — `advisor`, `student`, and
+`agency` layouts were already using the correct `/logo-white.png` file on their white headers; only
+`super-admin` had it backwards.
+
+## 🆕 Batch 14 — super-admin header gradient fix
+
+**Aesthetic-only, no SQL, no new dependencies.** `logo.png`/`logo-white.png` both have an opaque white
+background baked into the file (not transparent), so placing either directly on the solid navy header
+from Batch 13 created a hard-edged white box. Fixed in `app/super-admin/layout.tsx`: the header background
+is now a left-to-right gradient (white → `#172983`, via inline `style`, since a 3-stop gradient like this
+isn't a stock Tailwind utility) so the logo's own white background blends into the header instead of
+cutting against it, then the header eases into the same brand navy used everywhere else. The "SUPER ADMIN"
+badge switched from translucent-white-on-navy to `bg-brand-tint`/`text-brand`, since it now sits over the
+white part of the gradient. Logo switched from `/logo-white.png` to `/logo.png` for consistency with the
+rest of the site (both are visually equivalent — same shield mark on the same white background).
+
 ## 🆕 Batch 13 — super-user platform (view-only oversight) + lighter marketing role
 
 **New feature. Two SQL files, run in order** — `supabase/batch13a_add_roles.sql` first, by itself, then

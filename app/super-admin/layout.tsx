@@ -48,7 +48,13 @@ export default async function SuperAdminLayout({
 
   return (
     <div className="min-h-screen flex flex-col">
-      <header className="flex items-center justify-between px-6 py-3 bg-ink border-b border-line">
+      <header
+        className="flex items-center justify-between px-6 py-3 border-b border-line"
+        style={{
+          background:
+            "linear-gradient(to right, #FFFFFF 0%, #FFFFFF 240px, #172983 620px)",
+        }}
+      >
         <div className="flex items-center gap-3">
           <Image
             src="/logo-white.png"
@@ -57,7 +63,7 @@ export default async function SuperAdminLayout({
             height={280}
             className="h-auto w-[140px]"
           />
-          <span className="rounded bg-white/10 px-2 py-0.5 text-xs font-semibold text-white">
+          <span className="rounded bg-brand-tint px-2 py-0.5 text-xs font-semibold text-brand">
             SUPER ADMIN
           </span>
         </div>
