@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthropic";
 import { MONTHLY_PROFILE_ASSESSMENT_LIMIT } from "@/lib/ai-limits";
+import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
 
 function hashProfileSummary(summary: string): string {
   return createHash("sha256").update(summary).digest("hex");
@@ -147,6 +148,13 @@ export async function generateProfileAssessment(
     .eq("id", studentId)
     .maybeSingle();
   if (!studentProfile) return { success: false, error: "not_authorized" };
+
+  try {
+    await assertSeatActive(studentId);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
 
   const [{ data: academicConfig }, { data: grades }, { data: testScores }, { data: activities }, { data: applications }] =
     await Promise.all([
@@ -300,6 +308,13 @@ export async function saveProfileAssessment(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
+
+  try {
+    await assertSeatActive(studentId);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
 
   const { data: requester } = await supabase.from("profiles").select("display_name").eq("id", user.id).single();
 

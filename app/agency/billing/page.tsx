@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getAgencyDashboardData } from "@/lib/agency-data";
 import { createCheckoutSession, createPortalSession } from "./actions";
-import { addSeats, cancelSeat, upgradeSeat } from "@/app/actions/seats";
+import { addSeats, cancelSeat } from "@/app/actions/seats";
 
 const STATUS_LABEL: Record<string, string> = {
   inactive: "尚未開通",
@@ -154,7 +154,7 @@ export default async function AgencyBillingPage({
       <div className="rounded border border-line bg-slate-light/40 p-4 mb-6 text-xs text-slate leading-relaxed">
         <b className="text-ink">席次規則（請詳閱）：</b>
         <ul className="list-disc list-inside mt-1 space-y-0.5">
-          <li>席次可隨時「新增」；標準席次可隨時升級為進階席次，但進階席次無法降級為標準席次。</li>
+          <li>席次可隨時「新增」；標準席次可隨時升級為進階席次，但<b>進階席次永遠無法降級為標準席次，沒有例外</b>。</li>
           <li>
             席次購買後 <b>7 天內、且完全尚未使用</b>
             （沒有任何學生資料輸入）可以取消並依比例退款。超過 7 天或已開始使用，一律無法取消，也沒有退款。
@@ -317,11 +317,12 @@ export default async function AgencyBillingPage({
                         {SEAT_STATUS_LABEL[seat.status]}
                       </span>
                       {canUpgrade && (
-                        <form action={upgradeSeat.bind(null, seat.id)}>
-                          <button type="submit" className="text-xs text-brand underline">
-                            升級為進階
-                          </button>
-                        </form>
+                        <a
+                          href={`/agency/billing/seats/${seat.id}/upgrade`}
+                          className="text-xs text-brand underline"
+                        >
+                          升級為進階
+                        </a>
                       )}
                       {canCancel && (
                         <form action={cancelSeat.bind(null, seat.id)}>

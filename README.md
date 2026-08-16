@@ -2,6 +2,30 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 18.1 — fix: build-breaking bugs in Batch 17/18, finish seat-lifecycle enforcement, add warning screens
+
+**Batches 17 and 18 never actually built on Vercel — both failed the same type-check error.** `app/agency/billing/actions.ts` read `agency.stripe_subscription_id` but the Supabase query above it only selected `id, name, stripe_customer_id`, so TypeScript correctly rejected the property access. Found by hand-auditing every file changed since Batch 15 against its own `.select()` calls (no network access in the build sandbox to run a real `npm run build`, so this was manual review — please still run `npm run build` locally before pushing, as always). A second instance of the same bug class was found and fixed in `app/agency/students/page.tsx` (`student.is_archived` used but never selected). This zip supersedes Batches 16, 17, and 18 entirely — don't apply those separately, just this one.
+
+**What's actually in this drop, cumulatively:**
+- **Stripe 7-day trial** on agency subscriptions (`subscription_data.trial_period_days: 7` in `createCheckoutSession`) — applies to the whole subscription (license + all seats together), since Stripe trials aren't settable per line item.
+- **Stopgap fix for a real double-billing bug**: the old "Update plan/seat allocation" button always created a brand-new Checkout Session — meaning a brand-new subscription, including the license fee again — for any agency that already had one. Blocked entirely for already-subscribed agencies once the real seat system below shipped.
+- **Real seat lifecycle system** (`supabase/batch18_seat_lifecycle.sql` — run this first): a `seats` table replaces the old "just two integer counters" approach on `agencies`. Each seat is now a tracked row with its own type, status, assigned student, purchase date, and expiry date. Enforces the rules Dan specified:
+  - Seats can only be **added**, never reduced in bulk.
+  - A seat can be **canceled** (prorated refund) only if it's never been used AND it's within 7 days of purchase.
+  - A standard seat can be **upgraded** to premium at any time, used or not — but **never downgraded**, ever. This is now enforced with a dedicated warning/confirmation screen (`/agency/billing/seats/[id]/upgrade`) the admin must click through, not just inline text.
+  - Every seat **expires 365 days after purchase**, at which point the student's account becomes read-only everywhere. If a seat is never used at all before expiry, it rolls into the following year — the one and only exception.
+  - Agencies can **archive** a student (never delete) via a dedicated warning screen (`/agency/students/[id]/archive`) that states plainly, before they confirm: this cannot be undone, and the seat does not free up for reuse — a new student always requires a newly purchased seat.
+- **`assertSeatActive()`** (`lib/seats.ts`) is now called from every server action that creates or edits student data — `ai-feedback.ts`, `brainstorm.ts`, `activities.ts`, `applications.ts`, `test-scores.ts`, `documents.ts`, `profile-assessment.ts`, `grades.ts`. A student whose seat is expired, archived, or canceled is blocked at the server-action level (not just a hidden button — someone hitting the action directly gets the same rejection).
+- Seat rules are now stated in plain Chinese on the billing page itself, before anyone buys, not just in a legal doc.
+
+**How to apply:**
+1. Run `supabase/batch18_seat_lifecycle.sql` in the Supabase SQL editor (safe if some of it partially ran before — uses `if not exists`/do-blocks throughout).
+2. Replace your project files with this zip's contents.
+3. `rm -rf node_modules .next && npm install && npm run build` — confirm it actually builds this time before deploying.
+4. Push: `git add . && git commit -m "Batch 18.1: fix build, finish seat-lifecycle enforcement" && git push`.
+
+**Known gap still open:** the parent/individual tier's own "don't misuse the AI" acknowledgment screen (item (c) in Dan's request) can't be built yet — there's no parent account system to attach it to. It ships as part of the parent-tier batch (see below).
+
 ## 🆕 Batch 15 — fix: super-admin logo was still using the beige-background file
 
 **One-line fix, aesthetic only.** Batch 14 fixed the gradient but swapped the logo to the wrong file —

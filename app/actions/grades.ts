@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { isValidGradeValue } from "@/lib/grade-scales";
+import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
 
 export interface CourseMatch {
   id: string;
@@ -176,6 +177,13 @@ export async function saveAcademicConfig(
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
 
+  try {
+    await assertSeatActive(studentId);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
+
   const { error } = await supabase.from("student_academic_config").upsert({
     student_id: studentId,
     terms_per_year: config.terms_per_year,
@@ -227,6 +235,13 @@ export async function saveGradesForLevel(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
+
+  try {
+    await assertSeatActive(studentId);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
 
   const cleanRows = rows
     .map((r) => ({ ...r, course_name: r.course_name.trim() }))

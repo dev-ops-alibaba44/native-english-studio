@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { hasInvalidDateRange } from "@/lib/date-range";
+import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
 
 export type ActivityCategory = "extracurricular" | "sport" | "award" | "service";
 
@@ -38,6 +39,13 @@ export async function saveActivitiesForCategory(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
+
+  try {
+    await assertSeatActive(studentId);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
 
   const cleanRows = rows
     .map((r) => ({ ...r, title: r.title.trim(), description: r.description.trim() }))

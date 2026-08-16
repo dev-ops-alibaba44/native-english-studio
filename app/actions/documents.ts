@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
 
 export interface SavedSnapshot {
   id: string;
@@ -41,6 +42,20 @@ export async function saveSnapshot(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
+
+  const { data: application } = await supabase
+    .from("applications")
+    .select("id, student_id")
+    .eq("id", applicationId)
+    .maybeSingle();
+  if (!application) return { success: false, error: "not_authorized" };
+
+  try {
+    await assertSeatActive(application.student_id);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
 
   const { data: latest } = await supabase
     .from("drafts")

@@ -25,6 +25,17 @@ export class SeatInactiveError extends Error {
   }
 }
 
+// Shared error labels — spread this into any page's local ERROR_MESSAGES
+// map (e.g. `{ ...SEAT_ERROR_MESSAGES, ...pageSpecificMessages }`) so a
+// blocked action always shows the same clear explanation, wherever it
+// happened.
+export const SEAT_ERROR_MESSAGES: Record<string, string> = {
+  no_seat: "此學生尚未分配席次，請聯絡機構管理者於「帳單與繳費」頁面指派席次。",
+  expired: "此席次已到期（購買滿 365 天），目前僅能檢視，無法編輯。",
+  archived: "此學生帳號已被機構封存，目前僅能檢視，無法編輯。",
+  canceled: "此席次已取消，無法使用。",
+};
+
 export async function assertSeatActive(studentId: string): Promise<void> {
   const admin = createAdminClient();
 

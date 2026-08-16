@@ -30,7 +30,7 @@ async function requireAgencyAdmin() {
 
   const { data: agency } = await supabase
     .from("agencies")
-    .select("id, name, stripe_customer_id")
+    .select("id, name, stripe_customer_id, stripe_subscription_id")
     .eq("id", profile.agency_id)
     .single();
 

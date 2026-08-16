@@ -4,9 +4,11 @@ import { StageThread } from "@/components/StageThread";
 import { type Stage } from "@/lib/stages";
 import { createApplicationFor } from "@/app/actions/applications";
 import { sortApplicationsByDeadline, sortStudentsByDeadline } from "@/lib/deadlines";
-import { archiveStudent, assignSeat } from "@/app/actions/seats";
+import { assignSeat } from "@/app/actions/seats";
+import { SEAT_ERROR_MESSAGES } from "@/lib/seats";
 
 const ERROR_MESSAGES: Record<string, string> = {
+  ...SEAT_ERROR_MESSAGES,
   missing_school_name: "請輸入學校名稱。",
   no_agency: "這位學生尚未加入任何機構。",
   school_failed: "無法建立學校資料，請稍後再試。",
@@ -40,7 +42,9 @@ export default async function AgencyStudentsPage({
 
   let studentsQuery = supabase
     .from("profiles")
-    .select("id, display_name, primary_advisor_id, applications(id, stage, deadline, schools(name))")
+    .select(
+      "id, display_name, primary_advisor_id, is_archived, applications(id, stage, deadline, schools(name))"
+    )
     .eq("agency_id", profile.agency_id)
     .eq("role", "student")
     .order("display_name");
@@ -181,11 +185,12 @@ export default async function AgencyStudentsPage({
                     </span>
                   )}
                   {!student.is_archived && (
-                    <form action={archiveStudent.bind(null, student.id)}>
-                      <button type="submit" className="text-xs text-slate underline">
-                        封存學生
-                      </button>
-                    </form>
+                    <a
+                      href={`/agency/students/${student.id}/archive`}
+                      className="text-xs text-slate underline"
+                    >
+                      封存學生
+                    </a>
                   )}
                   {student.is_archived && (
                     <span className="text-xs font-semibold text-slate">已封存</span>

@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
 
 export async function createApplicationFor(
   studentId: string,
@@ -23,6 +24,15 @@ export async function createApplicationFor(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
+
+  try {
+    await assertSeatActive(studentId);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) {
+      redirect(`${returnPath}?error=${err.code}`);
+    }
+    throw err;
+  }
 
   // Scope the school to the STUDENT's agency, regardless of which role
   // (student/advisor/agency admin) is the one creating this application.

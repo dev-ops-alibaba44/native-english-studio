@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { isValidTestScore } from "@/lib/exam-score-bounds";
+import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
 
 export type TestCategory = "ap" | "ib" | "language" | "admissions" | "other";
 
@@ -29,6 +30,13 @@ export async function saveTestScoresForCategory(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
+
+  try {
+    await assertSeatActive(studentId);
+  } catch (err) {
+    if (err instanceof SeatInactiveError) return { success: false, error: err.code };
+    throw err;
+  }
 
   const cleanRows = rows
     .map((r) => ({ ...r, exam_name: r.exam_name.trim(), score: r.score.trim() }))
