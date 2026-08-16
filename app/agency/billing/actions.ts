@@ -66,6 +66,12 @@ export async function createCheckoutSession(formData: FormData) {
     customer: agency.stripe_customer_id || undefined,
     customer_email: agency.stripe_customer_id ? undefined : user.email || undefined,
     subscription_data: {
+      // 7-day free trial, applied to the whole subscription — this covers
+      // the license line item and every seat line item together (Stripe
+      // trials are set at the subscription level, not per-line-item; there
+      // is no way to trial only some items in one subscription). Dan
+      // confirmed both the license and seats should trial together.
+      trial_period_days: 7,
       metadata: { agency_id: agency.id },
     },
     metadata: { agency_id: agency.id },
