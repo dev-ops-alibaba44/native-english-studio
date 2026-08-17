@@ -2,6 +2,27 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 22 — split the license and seats into two independent Stripe subscriptions
+
+**Addendum, before Dan applied this batch**: a local Turbopack crash (`Next.js package not found... workspace root`) showed up while testing, caused by the dev server staying up while files were being overwritten on disk — not a bug in this batch's actual logic. Added an explicit `turbopack.root` pin to `next.config.mjs` (Next.js's own documented fix for this exact crash) as prevention. See recovery steps below — **stop the dev server completely before ever unzipping/copying a new batch's files**, every time, no exceptions, since this is what triggers it.
+
+This is the surgery Dan asked for after Stripe's cancellation screen showed one combined $3,825/yr figure instead of the license's $2,000/yr alone. Shipped in isolation, no other changes bundled in, given the stakes of touching real charging logic.
+
+- **Two Stripe Subscription objects per agency now, not one.** `agencies.stripe_subscription_id` is the license only going forward; a new `agencies.stripe_seats_subscription_id` is the seats subscription. Each has its own renewal date, its own total, and can be canceled independently — so the Stripe customer portal (and any cancellation preview) shows the license's $2,000/yr on its own, never mixed with seat totals.
+- **Checkout flow**: the initial "開始訂閱" session now only ever creates the license subscription. If seats were also requested, the webhook creates a completely separate seats subscription immediately afterward, using the payment method that checkout just saved — no second checkout page, same one-card signup experience as before.
+- **First-seat-later case**: if an agency buys only the license at first, `addSeats` creates the seats subscription fresh (with its own independent 7-day trial) the first time they add seats — not just at initial signup.
+- **Independent license-lapse gate, doubled**: `assertSeatActive()` now checks both `agencies.plan_status` (license) and the new `agencies.seats_plan_status` (seats) — either one lapsing blocks every student immediately. This closes a gap the split itself would otherwise open: previously only the license's status was checked; now canceling *just* the seats subscription (keeping the license) also correctly locks everyone out, symmetric to Batch 20's original license-lapse gate.
+- **Billing page** now shows two renewal dates (授權續約日 / 席次續約日) and two status pills, and the rules block states plainly that the two bill and renew separately.
+- Deduplicated the Stripe-status-to-our-status mapping (`mapSubscriptionStatus`) into `lib/seats.ts` so the webhook and `addSeats` (which also creates a subscription directly) can't drift apart on this logic.
+
+**Migration note — read before running the SQL against any agency that already subscribed under Batches 17–21:** Stripe has no API to split an existing combined subscription into two. The SQL includes a one-time backfill that marks existing active test agencies' `seats_plan_status` as active so nobody gets immediately locked out, but their *actual* Stripe subscription is still the old combined one underneath. To get a real, genuine two-subscription split for testing, cancel the old test subscription in the Stripe dashboard and run through "開始訂閱" again from scratch.
+
+**How to apply:**
+1. Run `supabase/batch22_split_subscriptions.sql`.
+2. `rm -rf node_modules .next && npm install && npm run build` — confirm clean before deploying, as always.
+3. In the Stripe dashboard, cancel any existing test subscription(s) from earlier batches, then re-subscribe through the app to get real two-subscription behavior to test against.
+4. Push.
+
 ## 🆕 Batch 21 — display name not updating after identity fields set, seat expiry now derived from admission cycle
 
 - **Setting a student's legal/preferred name never updated `profiles.display_name`** — the field every other page actually reads (students list, `/agency/prompts`, `/agency/calendar`, advisor pages, the student's own portal header). `updateStudentIdentity` now recomputes `display_name` after a save: preferred name first, then legal first + last name, falling back to whatever was already there if neither is set yet. Fixes all of Dan's reported pages at the source — none of them needed individual changes, they all already read `display_name`.

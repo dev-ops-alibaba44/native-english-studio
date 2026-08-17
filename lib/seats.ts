@@ -16,9 +16,9 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Call `assertSeatActive(studentId)` as the very first thing (after
 // confirming the caller's identity/access), before any write happens.
 export class SeatInactiveError extends Error {
-  code: "no_seat" | "expired" | "archived" | "canceled" | "license_inactive";
+  code: "no_seat" | "expired" | "archived" | "canceled" | "license_inactive" | "seats_inactive";
   constructor(
-    code: "no_seat" | "expired" | "archived" | "canceled" | "license_inactive",
+    code: "no_seat" | "expired" | "archived" | "canceled" | "license_inactive" | "seats_inactive",
     message: string
   ) {
     super(message);
@@ -34,6 +34,7 @@ export const SEAT_ERROR_MESSAGES: Record<string, string> = {
   archived: "此學生帳號已被機構封存，目前僅能檢視，無法編輯。",
   canceled: "此席次已取消，無法使用。",
   license_inactive: "貴機構的授權訂閱目前未生效（已取消或付款逾期），所有學生帳號暫時僅能檢視。請至「帳單與繳費」確認訂閱狀態。",
+  seats_inactive: "貴機構的席次訂閱目前未生效（已取消或付款逾期），所有學生帳號暫時僅能檢視。請至「帳單與繳費」確認訂閱狀態。",
 };
 
 // A seat's admission cycle is the year the student STARTS university —
@@ -49,6 +50,25 @@ export function admissionCycleExpiry(endYear: number): Date {
   // August 31, 23:59:59 local server time — generous enough that a
   // student working late on August 31 doesn't get cut off mid-session.
   return new Date(endYear, 7, 31, 23, 59, 59);
+}
+
+// Shared Stripe subscription-status -> our plan_status/seats_plan_status
+// mapping, used by both the webhook and any server action that creates a
+// subscription directly (e.g. addSeats creating the seats subscription
+// on first use). One definition so the two paths can't drift apart.
+export function mapSubscriptionStatus(
+  status: "active" | "trialing" | "past_due" | "unpaid" | "canceled" | "incomplete" | "incomplete_expired" | "paused"
+): "active" | "past_due" | "canceled" {
+  switch (status) {
+    case "active":
+    case "trialing":
+      return "active";
+    case "past_due":
+    case "unpaid":
+      return "past_due";
+    default:
+      return "canceled";
+  }
 }
 
 // The canonical way to get a seat's real expiry. Prefer deriving it live
@@ -88,19 +108,23 @@ export async function assertSeatActive(studentId: string): Promise<void> {
     );
   }
 
-  // Batch 20: independent of this seat's own status/expiry — if the
-  // agency's license itself isn't active, nothing under it is usable.
-  // This is what actually closes the "cancel the license, keep coasting
-  // on seats bought last cycle" hole: a lapsed license blocks every
-  // seat immediately, even one whose own admission-cycle date hasn't
-  // arrived yet.
+  // Batch 20/22: independent of this seat's own status/expiry — if EITHER
+  // the agency's license subscription or its seats subscription isn't
+  // active, nothing under it is usable. Two separate Stripe subscriptions
+  // as of Batch 22 (license and seats renew and cancel independently),
+  // so both need their own check: canceling just the seats subscription
+  // (keeping the license) must lock out every seat exactly the same as
+  // canceling the license does.
   const { data: agency } = await admin
     .from("agencies")
-    .select("plan_status")
+    .select("plan_status, seats_plan_status")
     .eq("id", seat.agency_id)
     .maybeSingle();
   if (!agency || agency.plan_status !== "active") {
     throw new SeatInactiveError("license_inactive", SEAT_ERROR_MESSAGES.license_inactive);
+  }
+  if (agency.seats_plan_status !== "active") {
+    throw new SeatInactiveError("seats_inactive", SEAT_ERROR_MESSAGES.seats_inactive);
   }
 
   if (seat.status === "archived") {

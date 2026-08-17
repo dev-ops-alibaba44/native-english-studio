@@ -9,7 +9,7 @@ import {
   STRIPE_PRICE_SEAT_STANDARD,
   STRIPE_PRICE_SEAT_PREMIUM,
 } from "@/lib/stripe";
-import { admissionCycleExpiry } from "@/lib/seats";
+import { admissionCycleExpiry, mapSubscriptionStatus } from "@/lib/seats";
 
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -32,15 +32,23 @@ async function requireAgencyAdminWithSubscription() {
 
   const { data: agency } = await supabase
     .from("agencies")
-    .select("id, stripe_subscription_id")
+    .select("id, stripe_customer_id, stripe_subscription_id, stripe_seats_subscription_id")
     .eq("id", profile.agency_id)
     .single();
 
-  if (!agency?.stripe_subscription_id) {
+  // The LICENSE subscription is required — you can't buy seats without
+  // an active license. The SEATS subscription may not exist yet (an
+  // agency that bought only the license so far); addSeats() creates it
+  // on first use, everything else requires it already exists.
+  if (!agency?.stripe_customer_id || !agency?.stripe_subscription_id) {
     redirect("/agency/billing?error=no_subscription_yet");
   }
 
-  return { agencyId: profile.agency_id, subscriptionId: agency!.stripe_subscription_id! };
+  return {
+    agencyId: profile.agency_id,
+    customerId: agency!.stripe_customer_id!,
+    seatsSubscriptionId: agency!.stripe_seats_subscription_id as string | null,
+  };
 }
 
 // Finds the subscription item for a given price, or null if that price
@@ -54,12 +62,20 @@ async function findSubscriptionItem(subscriptionId: string, priceId: string) {
   });
 }
 
+// Batch 22: the seats subscription is a completely separate Stripe
+// Subscription object from the license, so it renews and can be
+// canceled independently — this is what fixes Stripe's cancellation
+// screen showing one combined total instead of the license's $2,000
+// alone. Created lazily on an agency's first seat purchase (whether
+// that's at initial signup via the webhook, or later via addSeats if
+// the agency bought only the license at first).
+
 // ---------------------------------------------------------------------
 // Add seats — the ONLY quantity-increasing path. No decrease is ever
 // exposed anywhere in the UI; this is intentional, per Dan.
 // ---------------------------------------------------------------------
 export async function addSeats(formData: FormData) {
-  const { agencyId, subscriptionId } = await requireAgencyAdminWithSubscription();
+  const { agencyId, customerId, seatsSubscriptionId } = await requireAgencyAdminWithSubscription();
   const admin = createAdminClient();
 
   const standardToAdd = Math.max(0, Math.floor(Number(formData.get("standard_to_add") || 0)));
@@ -81,43 +97,106 @@ export async function addSeats(formData: FormData) {
   if (standardToAdd === 0 && premiumToAdd === 0) {
     redirect("/agency/billing?error=nothing_to_add");
   }
-
-  const additions: { type: "standard" | "premium"; count: number; priceId: string }[] = [];
-  if (standardToAdd > 0) additions.push({ type: "standard", count: standardToAdd, priceId: STRIPE_PRICE_SEAT_STANDARD });
-  if (premiumToAdd > 0) additions.push({ type: "premium", count: premiumToAdd, priceId: STRIPE_PRICE_SEAT_PREMIUM });
-
-  for (const { type, count, priceId } of additions) {
-    if (!priceId) redirect("/agency/billing?error=stripe_not_configured");
-
-    const existingItem = await findSubscriptionItem(subscriptionId, priceId);
-    let subscriptionItemId: string;
-
-    if (existingItem) {
-      const updated = await getStripe().subscriptionItems.update(existingItem.id, {
-        quantity: (existingItem.quantity || 0) + count,
-        proration_behavior: "create_prorations",
-      });
-      subscriptionItemId = updated.id;
-    } else {
-      const created = await getStripe().subscriptionItems.create({
-        subscription: subscriptionId,
-        price: priceId,
-        quantity: count,
-        proration_behavior: "create_prorations",
-      });
-      subscriptionItemId = created.id;
-    }
-
-    const newSeatRows = Array.from({ length: count }).map(() => ({
-      agency_id: agencyId,
-      seat_type: type,
-      status: "unused" as const,
-      stripe_subscription_item_id: subscriptionItemId,
-      admission_cycle_end_year: cycleEndYear,
-      expires_at: expiresAt,
-    }));
-    await admin.from("seats").insert(newSeatRows);
+  if ((standardToAdd > 0 && !STRIPE_PRICE_SEAT_STANDARD) || (premiumToAdd > 0 && !STRIPE_PRICE_SEAT_PREMIUM)) {
+    redirect("/agency/billing?error=stripe_not_configured");
   }
+
+  // Two cases: the agency's seats subscription doesn't exist yet (first
+  // seat purchase, possibly bought well after the license) — create it
+  // fresh with these items, getting its own independent 7-day trial. Or
+  // it already exists — add to its existing items the same way as
+  // before, per price.
+  let subscriptionItemIdByType: { standard?: string; premium?: string };
+
+  if (!seatsSubscriptionId) {
+    const items: { price: string; quantity: number }[] = [];
+    if (standardToAdd > 0) items.push({ price: STRIPE_PRICE_SEAT_STANDARD, quantity: standardToAdd });
+    if (premiumToAdd > 0) items.push({ price: STRIPE_PRICE_SEAT_PREMIUM, quantity: premiumToAdd });
+
+    const created = await getStripe().subscriptions.create({
+      customer: customerId,
+      items,
+      trial_period_days: 7,
+      metadata: { agency_id: agencyId, kind: "seats" },
+    });
+
+    await admin
+      .from("agencies")
+      .update({
+        stripe_seats_subscription_id: created.id,
+        seats_plan_status: mapSubscriptionStatus(created.status),
+        seats_current_period_end: new Date(created.current_period_end * 1000).toISOString(),
+      })
+      .eq("id", agencyId);
+
+    subscriptionItemIdByType = {};
+    for (const item of created.items.data) {
+      const priceId = typeof item.price === "string" ? item.price : item.price?.id;
+      if (priceId === STRIPE_PRICE_SEAT_STANDARD) subscriptionItemIdByType.standard = item.id;
+      if (priceId === STRIPE_PRICE_SEAT_PREMIUM) subscriptionItemIdByType.premium = item.id;
+    }
+  } else {
+    subscriptionItemIdByType = {};
+    const additions: { type: "standard" | "premium"; count: number; priceId: string }[] = [];
+    if (standardToAdd > 0) additions.push({ type: "standard", count: standardToAdd, priceId: STRIPE_PRICE_SEAT_STANDARD });
+    if (premiumToAdd > 0) additions.push({ type: "premium", count: premiumToAdd, priceId: STRIPE_PRICE_SEAT_PREMIUM });
+
+    for (const { type, count, priceId } of additions) {
+      const existingItem = await findSubscriptionItem(seatsSubscriptionId, priceId);
+      let subscriptionItemId: string;
+
+      if (existingItem) {
+        const updated = await getStripe().subscriptionItems.update(existingItem.id, {
+          quantity: (existingItem.quantity || 0) + count,
+          proration_behavior: "create_prorations",
+        });
+        subscriptionItemId = updated.id;
+      } else {
+        const created = await getStripe().subscriptionItems.create({
+          subscription: seatsSubscriptionId,
+          price: priceId,
+          quantity: count,
+          proration_behavior: "create_prorations",
+        });
+        subscriptionItemId = created.id;
+      }
+      subscriptionItemIdByType[type] = subscriptionItemId;
+    }
+  }
+
+  const newSeatRows: {
+    agency_id: string;
+    seat_type: "standard" | "premium";
+    status: "unused";
+    stripe_subscription_item_id: string | undefined;
+    admission_cycle_end_year: number;
+    expires_at: string;
+  }[] = [];
+  if (standardToAdd > 0) {
+    for (let i = 0; i < standardToAdd; i++) {
+      newSeatRows.push({
+        agency_id: agencyId,
+        seat_type: "standard",
+        status: "unused",
+        stripe_subscription_item_id: subscriptionItemIdByType.standard,
+        admission_cycle_end_year: cycleEndYear,
+        expires_at: expiresAt,
+      });
+    }
+  }
+  if (premiumToAdd > 0) {
+    for (let i = 0; i < premiumToAdd; i++) {
+      newSeatRows.push({
+        agency_id: agencyId,
+        seat_type: "premium",
+        status: "unused",
+        stripe_subscription_item_id: subscriptionItemIdByType.premium,
+        admission_cycle_end_year: cycleEndYear,
+        expires_at: expiresAt,
+      });
+    }
+  }
+  await admin.from("seats").insert(newSeatRows);
 
   revalidatePath("/agency/billing");
   redirect("/agency/billing?seat_action=added");
@@ -171,7 +250,7 @@ export async function setAdmissionCycle(seatId: string, formData: FormData) {
 // cancellation path; there is no cancellation after that window, ever.
 // ---------------------------------------------------------------------
 export async function cancelSeat(seatId: string) {
-  const { agencyId, subscriptionId } = await requireAgencyAdminWithSubscription();
+  const { agencyId } = await requireAgencyAdminWithSubscription();
   const admin = createAdminClient();
 
   const { data: seat } = await admin
@@ -216,7 +295,7 @@ export async function cancelSeat(seatId: string) {
 // never exposed as an action anywhere in the app.
 // ---------------------------------------------------------------------
 export async function upgradeSeat(seatId: string) {
-  const { agencyId, subscriptionId } = await requireAgencyAdminWithSubscription();
+  const { agencyId, seatsSubscriptionId } = await requireAgencyAdminWithSubscription();
   const admin = createAdminClient();
 
   const { data: seat } = await admin
@@ -236,6 +315,9 @@ export async function upgradeSeat(seatId: string) {
   }
   if (!STRIPE_PRICE_SEAT_PREMIUM) {
     redirect("/agency/billing?error=stripe_not_configured");
+  }
+  if (!seatsSubscriptionId) {
+    redirect("/agency/billing?error=seat_not_found");
   }
 
   // Decrement the standard item by one.
@@ -257,7 +339,7 @@ export async function upgradeSeat(seatId: string) {
   }
 
   // Increment (or create) the premium item by one.
-  const existingPremiumItem = await findSubscriptionItem(subscriptionId, STRIPE_PRICE_SEAT_PREMIUM);
+  const existingPremiumItem = await findSubscriptionItem(seatsSubscriptionId!, STRIPE_PRICE_SEAT_PREMIUM);
   let premiumItemId: string;
   if (existingPremiumItem) {
     const updated = await getStripe().subscriptionItems.update(existingPremiumItem.id, {
@@ -267,7 +349,7 @@ export async function upgradeSeat(seatId: string) {
     premiumItemId = updated.id;
   } else {
     const created = await getStripe().subscriptionItems.create({
-      subscription: subscriptionId,
+      subscription: seatsSubscriptionId!,
       price: STRIPE_PRICE_SEAT_PREMIUM,
       quantity: 1,
       proration_behavior: "create_prorations",

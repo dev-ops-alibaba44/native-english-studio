@@ -5,8 +5,6 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getStripe,
   STRIPE_PRICE_LICENSE,
-  STRIPE_PRICE_SEAT_STANDARD,
-  STRIPE_PRICE_SEAT_PREMIUM,
 } from "@/lib/stripe";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
@@ -78,12 +76,13 @@ export async function createCheckoutSession(formData: FormData) {
   const line_items: { price: string; quantity: number }[] = [
     { price: STRIPE_PRICE_LICENSE, quantity: 1 },
   ];
-  if (standardSeats > 0 && STRIPE_PRICE_SEAT_STANDARD) {
-    line_items.push({ price: STRIPE_PRICE_SEAT_STANDARD, quantity: standardSeats });
-  }
-  if (premiumSeats > 0 && STRIPE_PRICE_SEAT_PREMIUM) {
-    line_items.push({ price: STRIPE_PRICE_SEAT_PREMIUM, quantity: premiumSeats });
-  }
+  // Batch 22: seats are NOT line items on this checkout anymore — this
+  // session creates the LICENSE subscription only. If seats were also
+  // requested, the webhook creates a completely separate seats
+  // subscription right after this one confirms, using the payment
+  // method this checkout just saved on the customer. That's what makes
+  // the two subscriptions bill, renew, and cancel independently instead
+  // of showing one combined total.
 
   const session = await getStripe().checkout.sessions.create({
     mode: "subscription",
@@ -95,17 +94,17 @@ export async function createCheckoutSession(formData: FormData) {
     customer: agency.stripe_customer_id || undefined,
     customer_email: agency.stripe_customer_id ? undefined : user.email || undefined,
     subscription_data: {
-      // 7-day free trial, applied to the whole subscription — this covers
-      // the license line item and every seat line item together (Stripe
-      // trials are set at the subscription level, not per-line-item; there
-      // is no way to trial only some items in one subscription). Dan
-      // confirmed both the license and seats should trial together.
+      // 7-day free trial on the license subscription. The seats
+      // subscription (created separately in the webhook) gets its own
+      // independent 7-day trial too.
       trial_period_days: 7,
-      metadata: { agency_id: agency.id },
+      metadata: { agency_id: agency.id, kind: "license" },
     },
     metadata: {
       agency_id: agency.id,
       admission_cycle_end_year: cycleEndYear ? String(cycleEndYear) : "",
+      requested_standard_seats: String(standardSeats),
+      requested_premium_seats: String(premiumSeats),
     },
     success_url: `${SITE_URL}/agency/billing?checkout=success`,
     cancel_url: `${SITE_URL}/agency/billing?checkout=canceled`,

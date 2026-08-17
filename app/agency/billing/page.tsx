@@ -45,6 +45,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   seat_not_upgradable: "此席次狀態無法升級。",
   invalid_admission_cycle: "請選擇有效的入學年度。",
   license_inactive: "貴機構的授權訂閱目前未生效（已取消或付款逾期），所有學生帳號暫時僅能檢視。",
+  seats_inactive: "貴機構的席次訂閱目前未生效（已取消或付款逾期），所有學生帳號暫時僅能檢視。",
 };
 
 function admissionCycleOptions(): { value: number; label: string }[] {
@@ -91,7 +92,7 @@ export default async function AgencyBillingPage({
   const { data: agency } = await supabase
     .from("agencies")
     .select(
-      "name, stripe_customer_id, plan_status, standard_seats, premium_seats, current_period_end"
+      "name, stripe_customer_id, plan_status, standard_seats, premium_seats, current_period_end, seats_plan_status, seats_current_period_end"
     )
     .eq("id", profile.agency_id)
     .single();
@@ -181,6 +182,7 @@ export default async function AgencyBillingPage({
           <li>若席次在到期前完全未使用，可延續使用至隔年；除此之外沒有例外。</li>
           <li>機構封存學生帳號後，該席次<b>不會釋出重複使用</b>——如需服務其他學生，須另外購買新席次。</li>
           <li><b>無論任何席次是否仍在有效期內，只要貴機構的授權訂閱本身遭取消或付款逾期，所有學生帳號將立即轉為唯讀</b>，直到訂閱恢復為止。</li>
+          <li>授權費（$2,000/年）與席次費用<b>分別計費、分別續約</b>，各自獨立扣款與取消，不會合併成單一總額。</li>
         </ul>
       </div>
 
@@ -188,12 +190,21 @@ export default async function AgencyBillingPage({
         <div className="flex justify-between items-start mb-4">
           <div>
             <div className="font-display text-lg font-bold">目前方案</div>
-            <div className="text-sm text-slate">標準版機構授權</div>
+            <div className="text-sm text-slate">
+              標準版機構授權 · $2,000/年
+              {isConnected && (
+                <span
+                  className={`ml-2 text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_PILL[agency?.seats_plan_status || "inactive"]}`}
+                >
+                  席次訂閱：{STATUS_LABEL[agency?.seats_plan_status || "inactive"]}
+                </span>
+              )}
+            </div>
           </div>
           <span
             className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_PILL[planStatus]}`}
           >
-            {STATUS_LABEL[planStatus]}
+            授權：{STATUS_LABEL[planStatus]}
           </span>
         </div>
         <div className="grid grid-cols-4 gap-4 text-sm mb-5">
@@ -206,18 +217,23 @@ export default async function AgencyBillingPage({
             <div className="font-display text-lg font-bold">{agency?.premium_seats ?? 0}</div>
           </div>
           <div>
-            <div className="text-xs text-slate mb-1">目前學生數</div>
-            <div className="font-display text-lg font-bold">{students.length}</div>
-          </div>
-          <div>
-            <div className="text-xs text-slate mb-1">下次續約日</div>
+            <div className="text-xs text-slate mb-1">授權續約日</div>
             <div className="font-display text-lg font-bold">
               {agency?.current_period_end
                 ? new Date(agency.current_period_end).toLocaleDateString("zh-TW")
                 : "—"}
             </div>
           </div>
+          <div>
+            <div className="text-xs text-slate mb-1">席次續約日</div>
+            <div className="font-display text-lg font-bold">
+              {agency?.seats_current_period_end
+                ? new Date(agency.seats_current_period_end).toLocaleDateString("zh-TW")
+                : "—"}
+            </div>
+          </div>
         </div>
+        <div className="text-xs text-slate mb-5">目前學生數：{students.length}</div>
 
         {!isConnected && (
           <form action={createCheckoutSession} className="flex flex-wrap items-end gap-3 mb-3">

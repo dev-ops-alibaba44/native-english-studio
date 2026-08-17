@@ -2,26 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe, STRIPE_PRICE_SEAT_STANDARD, STRIPE_PRICE_SEAT_PREMIUM } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { admissionCycleExpiry } from "@/lib/seats";
+import { admissionCycleExpiry, mapSubscriptionStatus } from "@/lib/seats";
 
 // Stripe requires the raw request body (unparsed) to verify the signature,
 // so this route must NOT run any body-parsing middleware. App Router route
 // handlers don't parse the body automatically, so req.text() below is safe.
 export const runtime = "nodejs";
-
-function mapSubscriptionStatus(status: Stripe.Subscription.Status): string {
-  switch (status) {
-    case "active":
-    case "trialing":
-      return "active";
-    case "past_due":
-    case "unpaid":
-      return "past_due";
-    default:
-      // canceled, incomplete, incomplete_expired, paused
-      return "canceled";
-  }
-}
 
 function seatCountsFromSubscription(sub: Stripe.Subscription): {
   standard_seats: number;
@@ -37,16 +23,101 @@ function seatCountsFromSubscription(sub: Stripe.Subscription): {
   return { standard_seats, premium_seats };
 }
 
-async function findAgencyIdForCustomer(
+async function findAgencyForCustomer(
   admin: ReturnType<typeof createAdminClient>,
   customerId: string
-): Promise<string | null> {
+): Promise<{ id: string; stripe_subscription_id: string | null; stripe_seats_subscription_id: string | null } | null> {
   const { data } = await admin
     .from("agencies")
-    .select("id")
+    .select("id, stripe_subscription_id, stripe_seats_subscription_id")
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
-  return data?.id ?? null;
+  return data ?? null;
+}
+
+// Batch 22: creates the seats subscription as its own separate Stripe
+// Subscription object (not line items on the license subscription), so
+// it bills, renews, and cancels independently. Called right after the
+// license Checkout Session completes, using the payment method that
+// checkout just saved on the customer — no second checkout page needed.
+async function createSeatsSubscription(
+  admin: ReturnType<typeof createAdminClient>,
+  agencyId: string,
+  customerId: string,
+  standardSeats: number,
+  premiumSeats: number,
+  cycleEndYear: number | null
+) {
+  const items: { price: string; quantity: number }[] = [];
+  if (standardSeats > 0 && STRIPE_PRICE_SEAT_STANDARD) {
+    items.push({ price: STRIPE_PRICE_SEAT_STANDARD, quantity: standardSeats });
+  }
+  if (premiumSeats > 0 && STRIPE_PRICE_SEAT_PREMIUM) {
+    items.push({ price: STRIPE_PRICE_SEAT_PREMIUM, quantity: premiumSeats });
+  }
+  if (items.length === 0) return;
+
+  const seatsSubscription = await getStripe().subscriptions.create({
+    customer: customerId,
+    items,
+    trial_period_days: 7,
+    metadata: { agency_id: agencyId, kind: "seats" },
+  });
+
+  const { standard_seats, premium_seats } = seatCountsFromSubscription(seatsSubscription);
+
+  await admin
+    .from("agencies")
+    .update({
+      stripe_seats_subscription_id: seatsSubscription.id,
+      seats_plan_status: mapSubscriptionStatus(seatsSubscription.status),
+      seats_current_period_end: new Date(seatsSubscription.current_period_end * 1000).toISOString(),
+      standard_seats,
+      premium_seats,
+    })
+    .eq("id", agencyId);
+
+  const cycleExpiresAt =
+    cycleEndYear && cycleEndYear > 0 ? admissionCycleExpiry(cycleEndYear).toISOString() : null;
+
+  const seatRows: {
+    agency_id: string;
+    seat_type: "standard" | "premium";
+    status: "unused";
+    stripe_subscription_item_id: string | undefined;
+    admission_cycle_end_year: number | null;
+    expires_at?: string;
+  }[] = [];
+  for (const item of seatsSubscription.items.data) {
+    const priceId = typeof item.price === "string" ? item.price : item.price?.id;
+    if (priceId === STRIPE_PRICE_SEAT_STANDARD) {
+      for (let i = 0; i < (item.quantity || 0); i++) {
+        seatRows.push({
+          agency_id: agencyId,
+          seat_type: "standard",
+          status: "unused",
+          stripe_subscription_item_id: item.id,
+          admission_cycle_end_year: cycleEndYear,
+          ...(cycleExpiresAt ? { expires_at: cycleExpiresAt } : {}),
+        });
+      }
+    }
+    if (priceId === STRIPE_PRICE_SEAT_PREMIUM) {
+      for (let i = 0; i < (item.quantity || 0); i++) {
+        seatRows.push({
+          agency_id: agencyId,
+          seat_type: "premium",
+          status: "unused",
+          stripe_subscription_item_id: item.id,
+          admission_cycle_end_year: cycleEndYear,
+          ...(cycleExpiresAt ? { expires_at: cycleExpiresAt } : {}),
+        });
+      }
+    }
+  }
+  if (seatRows.length > 0) {
+    await admin.from("seats").insert(seatRows);
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -80,81 +151,57 @@ export async function POST(req: NextRequest) {
           (session.metadata?.agency_id as string | undefined);
         if (!agencyId || !session.subscription || !session.customer) break;
 
-        const subscription = await getStripe().subscriptions.retrieve(
+        // This checkout is ALWAYS the license subscription as of Batch
+        // 22 — seats are never a line item here.
+        const licenseSubscription = await getStripe().subscriptions.retrieve(
           typeof session.subscription === "string"
             ? session.subscription
             : session.subscription.id
         );
-        const { standard_seats, premium_seats } = seatCountsFromSubscription(subscription);
+        const customerId =
+          typeof session.customer === "string" ? session.customer : session.customer.id;
 
         await admin
           .from("agencies")
           .update({
-            stripe_customer_id:
-              typeof session.customer === "string" ? session.customer : session.customer.id,
-            stripe_subscription_id: subscription.id,
-            plan_status: mapSubscriptionStatus(subscription.status),
-            standard_seats,
-            premium_seats,
-            current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+            stripe_customer_id: customerId,
+            stripe_subscription_id: licenseSubscription.id,
+            plan_status: mapSubscriptionStatus(licenseSubscription.status),
+            current_period_end: new Date(licenseSubscription.current_period_end * 1000).toISOString(),
           })
           .eq("id", agencyId);
 
-        // Batch 18: create the individual seat rows behind these counts,
-        // one per unit purchased — only on an agency's FIRST subscription
-        // (checked via the seats table being empty), since every seat
-        // added after this point goes through app/actions/seats.ts's
-        // addSeats(), which inserts its own rows at the time of purchase.
-        // Guards against double-inserting rows if Stripe retries this
-        // webhook event.
+        // If seats were requested alongside the license at signup,
+        // create their own separate subscription now, using the payment
+        // method this checkout just saved. Guarded so a Stripe webhook
+        // retry can't create a second seats subscription — only runs if
+        // this agency has no seats subscription and no seat rows yet.
+        const { data: agencyAfterLicense } = await admin
+          .from("agencies")
+          .select("stripe_seats_subscription_id")
+          .eq("id", agencyId)
+          .maybeSingle();
+
         const { count: existingSeatCount } = await admin
           .from("seats")
           .select("id", { count: "exact", head: true })
           .eq("agency_id", agencyId);
 
-        if (!existingSeatCount || existingSeatCount === 0) {
+        if (!agencyAfterLicense?.stripe_seats_subscription_id && (!existingSeatCount || existingSeatCount === 0)) {
+          const standardSeats = Number(session.metadata?.requested_standard_seats || 0);
+          const premiumSeats = Number(session.metadata?.requested_premium_seats || 0);
           const cycleEndYearRaw = session.metadata?.admission_cycle_end_year;
           const cycleEndYear = cycleEndYearRaw ? Number(cycleEndYearRaw) : null;
-          const cycleExpiresAt =
-            cycleEndYear && cycleEndYear > 0 ? admissionCycleExpiry(cycleEndYear).toISOString() : null;
 
-          const seatRows: {
-            agency_id: string;
-            seat_type: "standard" | "premium";
-            status: "unused";
-            stripe_subscription_item_id: string | undefined;
-            admission_cycle_end_year: number | null;
-            expires_at?: string;
-          }[] = [];
-          for (const item of subscription.items.data) {
-            const priceId = typeof item.price === "string" ? item.price : item.price?.id;
-            if (priceId === STRIPE_PRICE_SEAT_STANDARD) {
-              for (let i = 0; i < (item.quantity || 0); i++) {
-                seatRows.push({
-                  agency_id: agencyId,
-                  seat_type: "standard",
-                  status: "unused",
-                  stripe_subscription_item_id: item.id,
-                  admission_cycle_end_year: cycleEndYear,
-                  ...(cycleExpiresAt ? { expires_at: cycleExpiresAt } : {}),
-                });
-              }
-            }
-            if (priceId === STRIPE_PRICE_SEAT_PREMIUM) {
-              for (let i = 0; i < (item.quantity || 0); i++) {
-                seatRows.push({
-                  agency_id: agencyId,
-                  seat_type: "premium",
-                  status: "unused",
-                  stripe_subscription_item_id: item.id,
-                  admission_cycle_end_year: cycleEndYear,
-                  ...(cycleExpiresAt ? { expires_at: cycleExpiresAt } : {}),
-                });
-              }
-            }
-          }
-          if (seatRows.length > 0) {
-            await admin.from("seats").insert(seatRows);
+          if (standardSeats > 0 || premiumSeats > 0) {
+            await createSeatsSubscription(
+              admin,
+              agencyId,
+              customerId,
+              standardSeats,
+              premiumSeats,
+              cycleEndYear
+            );
           }
         }
         break;
@@ -163,28 +210,48 @@ export async function POST(req: NextRequest) {
       case "customer.subscription.updated":
       case "customer.subscription.deleted": {
         const subscription = event.data.object as Stripe.Subscription;
-        const agencyId =
-          (subscription.metadata?.agency_id as string | undefined) ||
-          (await findAgencyIdForCustomer(
-            admin,
-            typeof subscription.customer === "string"
-              ? subscription.customer
-              : subscription.customer.id
-          ));
-        if (!agencyId) break;
+        const customerId =
+          typeof subscription.customer === "string"
+            ? subscription.customer
+            : subscription.customer.id;
 
-        const { standard_seats, premium_seats } = seatCountsFromSubscription(subscription);
+        // Batch 22: this event could be for EITHER the license or the
+        // seats subscription — they're two separate Subscription
+        // objects now. Metadata.kind (set when each was created) is the
+        // fast path; falling back to matching against the agency's
+        // stored subscription IDs covers events from before this batch
+        // or any edge case where metadata didn't come through.
+        const kindHint = subscription.metadata?.kind as "license" | "seats" | undefined;
+        const agency = await findAgencyForCustomer(admin, customerId);
+        if (!agency) break;
 
-        await admin
-          .from("agencies")
-          .update({
-            stripe_subscription_id: subscription.id,
-            plan_status: mapSubscriptionStatus(subscription.status),
-            standard_seats,
-            premium_seats,
-            current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-          })
-          .eq("id", agencyId);
+        const isLicense =
+          kindHint === "license" || agency.stripe_subscription_id === subscription.id;
+        const isSeats =
+          kindHint === "seats" || agency.stripe_seats_subscription_id === subscription.id;
+
+        if (isLicense) {
+          await admin
+            .from("agencies")
+            .update({
+              stripe_subscription_id: subscription.id,
+              plan_status: mapSubscriptionStatus(subscription.status),
+              current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+            })
+            .eq("id", agency.id);
+        } else if (isSeats) {
+          const { standard_seats, premium_seats } = seatCountsFromSubscription(subscription);
+          await admin
+            .from("agencies")
+            .update({
+              stripe_seats_subscription_id: subscription.id,
+              seats_plan_status: mapSubscriptionStatus(subscription.status),
+              seats_current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+              standard_seats,
+              premium_seats,
+            })
+            .eq("id", agency.id);
+        }
         break;
       }
 
@@ -194,12 +261,12 @@ export async function POST(req: NextRequest) {
           typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
         if (!customerId) break;
 
-        const agencyId = await findAgencyIdForCustomer(admin, customerId);
-        if (!agencyId) break;
+        const agency = await findAgencyForCustomer(admin, customerId);
+        if (!agency) break;
 
         await admin.from("billing_events").upsert(
           {
-            agency_id: agencyId,
+            agency_id: agency.id,
             stripe_event_id: event.id,
             type: event.type,
             amount_total: invoice.amount_paid,
