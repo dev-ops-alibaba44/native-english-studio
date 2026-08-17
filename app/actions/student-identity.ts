@@ -27,7 +27,7 @@ async function requireAgencyAdminForStudent(studentId: string) {
   const { data: student } = await admin
     .from("profiles")
     .select(
-      "id, agency_id, role, birthdate, birthdate_locked, chinese_name, chinese_name_locked, legal_first_name, legal_first_name_locked, legal_last_name, legal_last_name_locked, preferred_name, preferred_name_changed_at"
+      "id, agency_id, role, display_name, birthdate, birthdate_locked, chinese_name, chinese_name_locked, legal_first_name, legal_first_name_locked, legal_last_name, legal_last_name_locked, preferred_name, preferred_name_changed_at"
     )
     .eq("id", studentId)
     .maybeSingle();
@@ -99,6 +99,25 @@ export async function updateStudentIdentity(studentId: string, formData: FormDat
   }
 
   if (Object.keys(updates).length > 0) {
+    // Batch: this is the actual bug behind Dan's report — every other
+    // page (students list, advisor pages, prompts, calendar, the
+    // student's own portal) reads profiles.display_name, which this
+    // action never touched. Setting a legal/preferred name updated the
+    // identity fields but left the placeholder sign-up name showing
+    // everywhere. Recompute display_name here so it's the single
+    // consistent source every other page already relies on: prefer the
+    // student's chosen preferred name, then fall back to their legal
+    // name, and only leave the original placeholder if neither has been
+    // set yet.
+    const nextPreferredName = (updates.preferred_name as string) ?? student.preferred_name;
+    const nextLegalFirst = (updates.legal_first_name as string) ?? student.legal_first_name;
+    const nextLegalLast = (updates.legal_last_name as string) ?? student.legal_last_name;
+    const legalFullName = [nextLegalFirst, nextLegalLast].filter(Boolean).join(" ");
+    const computedDisplayName = (nextPreferredName || legalFullName || "").trim();
+    if (computedDisplayName && computedDisplayName !== student.display_name) {
+      updates.display_name = computedDisplayName;
+    }
+
     await admin.from("profiles").update(updates).eq("id", studentId);
   }
 

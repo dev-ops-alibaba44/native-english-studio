@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAgencyDashboardData } from "@/lib/agency-data";
 import { createCheckoutSession, createPortalSession } from "./actions";
 import { addSeats, cancelSeat, setAdmissionCycle } from "@/app/actions/seats";
+import { effectiveExpiresAt } from "@/lib/seats";
 
 const STATUS_LABEL: Record<string, string> = {
   inactive: "尚未開通",
@@ -373,7 +374,7 @@ export default async function AgencyBillingPage({
                               </div>
                               <div className="text-xs text-slate">
                                 購買於 {new Date(seat.purchased_at).toLocaleDateString("zh-TW")} · 到期於{" "}
-                                {new Date(seat.expires_at).toLocaleDateString("zh-TW")}
+                                {effectiveExpiresAt(seat).toLocaleDateString("zh-TW")}
                                 {seat.admission_cycle_end_year && (
                                   <> · 入學年度 {seat.admission_cycle_end_year - 1}–{seat.admission_cycle_end_year}</>
                                 )}

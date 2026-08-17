@@ -51,12 +51,31 @@ export function admissionCycleExpiry(endYear: number): Date {
   return new Date(endYear, 7, 31, 23, 59, 59);
 }
 
+// The canonical way to get a seat's real expiry. Prefer deriving it live
+// from admission_cycle_end_year over trusting the separately-stored
+// expires_at column — a stored value can only ever be as correct as
+// whatever write path last touched it, and Dan found a real case where
+// it drifted out of sync with the cycle that was actually set. Deriving
+// it fresh here means that class of bug can't recur even if some future
+// write path forgets to also update expires_at: the cycle is the single
+// source of truth once one exists. expires_at only matters as a fallback
+// for legacy seats that predate admission cycles entirely.
+export function effectiveExpiresAt(seat: {
+  expires_at: string;
+  admission_cycle_end_year: number | null;
+}): Date {
+  if (seat.admission_cycle_end_year) {
+    return admissionCycleExpiry(seat.admission_cycle_end_year);
+  }
+  return new Date(seat.expires_at);
+}
+
 export async function assertSeatActive(studentId: string): Promise<void> {
   const admin = createAdminClient();
 
   const { data: seat } = await admin
     .from("seats")
-    .select("id, agency_id, status, expires_at")
+    .select("id, agency_id, status, expires_at, admission_cycle_end_year")
     .eq("assigned_student_id", studentId)
     .maybeSingle();
 
@@ -91,7 +110,7 @@ export async function assertSeatActive(studentId: string): Promise<void> {
     throw new SeatInactiveError("canceled", SEAT_ERROR_MESSAGES.canceled);
   }
 
-  const isPastExpiry = new Date(seat.expires_at).getTime() <= Date.now();
+  const isPastExpiry = effectiveExpiresAt(seat).getTime() <= Date.now();
   if (isPastExpiry) {
     if (seat.status !== "expired") {
       await admin.from("seats").update({ status: "expired" }).eq("id", seat.id);
