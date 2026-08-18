@@ -2,6 +2,28 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 23 — agency-initiated student sign-up, seat actions moved to the students page, billing 席次清單 removed
+
+The real sign-up process Dan asked for: agencies can now create a student account themselves — name (Chinese + legal English), DOB, and a chosen unused seat, all in one form — instead of the only path into the system being an agency admin editing identity fields on a profile that had to already exist somehow.
+
+- **New: `/agency/students/new`.** One combined form (email, 中文姓名, 英文法定名字/姓氏, 出生日期, optional 英文慣用名, and a seat picker showing only this agency's unused/unassigned seats). Submitting it does three things in order: creates a real Supabase Auth user via `admin.auth.admin.inviteUserByEmail` (which sends the student an invite email — nobody gets handed a temp password to relay), immediately locks the identity fields on the resulting profile exactly the same as the existing once-locked-field rules from Batch 19, and assigns the chosen seat. If the agency has no unused seats, the page says so and points at billing instead of showing a dead-end form.
+- **New: `/auth/set-password`.** Where the invite email's link lands (via `/auth/callback?next=/auth/set-password`) — the one screen that has to exist before an invited student can do anything else. Sets their password via `supabase.auth.updateUser`, then sends them to `/dashboard`, which already knows how to route a student to `/student`.
+- **This supersedes the old `/agency/students/[id]/identity` page as the de facto sign-up mechanism** — that page still exists and still works (mainly now for changing 英文慣用名, since the four locked fields get set at creation time going forward), but it's no longer the only way a student's name and DOB get into the system.
+- **`profiles.email`** (new column, `batch23_agency_student_signup.sql`) — a mirror of the auth email, populated at creation time, so pages that already read `profiles` can show it without a second admin-API call per row. Blank on profiles created before this batch.
+- **`/agency/portfolio` and `/advisor/portfolio` real-names fix**: both pages were querying every student on the entire platform with no `agency_id` filter, relying purely on RLS to narrow the picker down. Added the explicit filter (same pattern as the students list page) — defense in depth, and the actual fix for names not reliably showing the right agency's roster.
+- **Billing page: 席次清單 removed, replaced with two things:**
+  - Per-seat actions (cancel within 7 days, upgrade to premium, set admission cycle) **moved to `/agency/students`**, which now also shows a "尚未分配的席次" section at the top for seats that have no student yet — this is where those actions live now, whether or not the seat has an assigned student.
+  - **New, read-only `/agency/billing/students`**: seat counts by type and by status (尚未使用／使用中／已封存／已到期／已取消), plus the complete roster of manually signed-up students with 中文姓名, 英文姓名, 出生日期, and email — the "how many seats, who are they" view Dan asked for, kept deliberately free of any management actions.
+  - The main billing page keeps the top-line seat counts, the "新增席次" bulk-purchase form (still the way to buy more seat capacity), and now links out to both of the above.
+
+**Known limitation, not addressed this batch**: student creation isn't transactional — if the seat-assignment step fails after the Auth user and profile update already succeeded, the account exists but shows a generic "帳號已建立，但學生資料儲存失敗" error rather than rolling back. Hasn't come up in testing; worth hardening later if it does.
+
+**How to apply:**
+1. Run `supabase/batch23_agency_student_signup.sql`.
+2. `rm -rf node_modules .next && npm install && npm run build` — confirm clean before deploying, as always.
+3. In Supabase Dashboard → Authentication → Email Templates, check the "Invite user" template still points somewhere sensible — it should already redirect through `/auth/callback`, just confirm the template itself hasn't been customized to skip that.
+4. Push.
+
 ## 🆕 Batch 22 — split the license and seats into two independent Stripe subscriptions
 
 **Addendum, before Dan applied this batch**: a local Turbopack crash (`Next.js package not found... workspace root`) showed up while testing, caused by the dev server staying up while files were being overwritten on disk — not a bug in this batch's actual logic. Added an explicit `turbopack.root` pin to `next.config.mjs` (Next.js's own documented fix for this exact crash) as prevention. See recovery steps below — **stop the dev server completely before ever unzipping/copying a new batch's files**, every time, no exceptions, since this is what triggers it.

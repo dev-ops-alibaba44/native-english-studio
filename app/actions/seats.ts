@@ -217,7 +217,7 @@ export async function setAdmissionCycle(seatId: string, formData: FormData) {
   const cycleEndYear = Math.floor(Number(formData.get("admission_cycle_end_year") || 0));
   const currentYear = new Date().getFullYear();
   if (!cycleEndYear || cycleEndYear < currentYear || cycleEndYear > currentYear + 6) {
-    redirect("/agency/billing?error=invalid_admission_cycle");
+    redirect("/agency/students?error=invalid_admission_cycle");
   }
 
   const { data: seat } = await admin
@@ -226,10 +226,10 @@ export async function setAdmissionCycle(seatId: string, formData: FormData) {
     .eq("id", seatId)
     .maybeSingle();
   if (!seat || seat.agency_id !== agencyId) {
-    redirect("/agency/billing?error=seat_not_found");
+    redirect("/agency/students?error=seat_not_found");
   }
   if (seat!.status !== "unused") {
-    redirect("/agency/billing?error=seat_not_upgradable");
+    redirect("/agency/students?error=seat_not_upgradable");
   }
 
   await admin
@@ -240,8 +240,8 @@ export async function setAdmissionCycle(seatId: string, formData: FormData) {
     })
     .eq("id", seatId);
 
-  revalidatePath("/agency/billing");
-  redirect("/agency/billing?seat_action=cycle_set");
+  revalidatePath("/agency/students");
+  redirect("/agency/students?seat_action=cycle_set");
 }
 
 // ---------------------------------------------------------------------
@@ -260,14 +260,14 @@ export async function cancelSeat(seatId: string) {
     .maybeSingle();
 
   if (!seat || seat.agency_id !== agencyId) {
-    redirect("/agency/billing?error=seat_not_found");
+    redirect("/agency/students?error=seat_not_found");
   }
   if (seat!.status !== "unused") {
-    redirect("/agency/billing?error=seat_not_cancelable");
+    redirect("/agency/students?error=seat_not_cancelable");
   }
   const ageMs = Date.now() - new Date(seat!.purchased_at).getTime();
   if (ageMs > SEVEN_DAYS_MS) {
-    redirect("/agency/billing?error=seat_cancel_window_passed");
+    redirect("/agency/students?error=seat_cancel_window_passed");
   }
 
   if (seat!.stripe_subscription_item_id) {
@@ -285,8 +285,8 @@ export async function cancelSeat(seatId: string) {
 
   await admin.from("seats").update({ status: "canceled" }).eq("id", seatId);
 
-  revalidatePath("/agency/billing");
-  redirect("/agency/billing?seat_action=canceled");
+  revalidatePath("/agency/students");
+  redirect("/agency/students?seat_action=canceled");
 }
 
 // ---------------------------------------------------------------------
@@ -305,19 +305,19 @@ export async function upgradeSeat(seatId: string) {
     .maybeSingle();
 
   if (!seat || seat.agency_id !== agencyId) {
-    redirect("/agency/billing?error=seat_not_found");
+    redirect("/agency/students?error=seat_not_found");
   }
   if (seat!.seat_type !== "standard") {
-    redirect("/agency/billing?error=already_premium");
+    redirect("/agency/students?error=already_premium");
   }
   if (seat!.status === "archived" || seat!.status === "canceled" || seat!.status === "expired") {
-    redirect("/agency/billing?error=seat_not_upgradable");
+    redirect("/agency/students?error=seat_not_upgradable");
   }
   if (!STRIPE_PRICE_SEAT_PREMIUM) {
-    redirect("/agency/billing?error=stripe_not_configured");
+    redirect("/agency/students?error=stripe_not_configured");
   }
   if (!seatsSubscriptionId) {
-    redirect("/agency/billing?error=seat_not_found");
+    redirect("/agency/students?error=seat_not_found");
   }
 
   // Decrement the standard item by one.
@@ -372,8 +372,8 @@ export async function upgradeSeat(seatId: string) {
     })
     .eq("id", seatId);
 
-  revalidatePath("/agency/billing");
-  redirect("/agency/billing?seat_action=upgraded");
+  revalidatePath("/agency/students");
+  redirect("/agency/students?seat_action=upgraded");
 }
 
 // ---------------------------------------------------------------------

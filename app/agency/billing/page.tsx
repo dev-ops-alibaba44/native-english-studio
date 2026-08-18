@@ -1,8 +1,9 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getAgencyDashboardData } from "@/lib/agency-data";
 import { createCheckoutSession, createPortalSession } from "./actions";
-import { addSeats, cancelSeat, setAdmissionCycle } from "@/app/actions/seats";
-import { effectiveExpiresAt } from "@/lib/seats";
+import { addSeats } from "@/app/actions/seats";
+import { admissionCycleOptions } from "@/lib/seats";
 
 const STATUS_LABEL: Record<string, string> = {
   inactive: "尚未開通",
@@ -17,55 +18,21 @@ const STATUS_PILL: Record<string, string> = {
   canceled: "bg-danger-tint text-danger",
 };
 
-const SEAT_STATUS_LABEL: Record<string, string> = {
-  unused: "尚未使用",
-  active: "使用中",
-  archived: "已封存",
-  expired: "已到期",
-  canceled: "已取消",
-};
-const SEAT_STATUS_PILL: Record<string, string> = {
-  unused: "bg-slate-light text-slate",
-  active: "bg-good-tint text-good",
-  archived: "bg-slate-light text-slate line-through",
-  expired: "bg-danger-tint text-danger",
-  canceled: "bg-slate-light text-slate line-through",
-};
-
 const ERROR_MESSAGES: Record<string, string> = {
   stripe_not_configured: "付款系統尚未設定完成，請聯絡系統管理者設定 Stripe 價格 ID。",
   checkout_failed: "無法建立付款頁面，請稍後再試。",
   no_subscription_yet: "尚未有訂閱紀錄，請先完成一次付款設定。",
   use_add_seats_soon: "請使用下方「新增席次」，避免重複建立訂閱。",
   nothing_to_add: "請輸入至少一個要新增的席次數量。",
-  seat_not_found: "找不到這個席次。",
-  seat_not_cancelable: "此席次已被使用，無法取消——僅未使用的席次可在購買 7 天內取消。",
-  seat_cancel_window_passed: "已超過購買後 7 天，此席次無法取消。",
-  already_premium: "此席次已經是進階席次。",
-  seat_not_upgradable: "此席次狀態無法升級。",
   invalid_admission_cycle: "請選擇有效的入學年度。",
   license_inactive: "貴機構的授權訂閱目前未生效（已取消或付款逾期），所有學生帳號暫時僅能檢視。",
   seats_inactive: "貴機構的席次訂閱目前未生效（已取消或付款逾期），所有學生帳號暫時僅能檢視。",
 };
 
-function admissionCycleOptions(): { value: number; label: string }[] {
-  const currentYear = new Date().getFullYear();
-  return Array.from({ length: 5 }).map((_, i) => {
-    const endYear = currentYear + i;
-    return { value: endYear, label: `${endYear - 1}–${endYear}（${endYear} 年 9 月入學）` };
-  });
-}
-
 function formatCents(amount: number | null, currency: string | null) {
   if (amount === null) return "—";
   const value = amount / 100;
   return `${(currency || "usd").toUpperCase()} $${value.toLocaleString()}`;
-}
-
-function daysLeftToCancel(purchasedAt: string): number {
-  const ageMs = Date.now() - new Date(purchasedAt).getTime();
-  const daysLeft = 7 - Math.floor(ageMs / (24 * 60 * 60 * 1000));
-  return Math.max(0, daysLeft);
 }
 
 export default async function AgencyBillingPage({
@@ -103,19 +70,7 @@ export default async function AgencyBillingPage({
     .eq("agency_id", profile.agency_id)
     .order("created_at", { ascending: false });
 
-  // Seats: read via the regular RLS-scoped client, same as everything
-  // else on this page — writes only ever happen inside the server
-  // actions in app/actions/seats.ts, via the admin client.
-  const { data: seats } = await supabase
-    .from("seats")
-    .select(
-      "id, seat_type, status, assigned_student_id, purchased_at, expires_at, admission_cycle_end_year"
-    )
-    .eq("agency_id", profile.agency_id)
-    .order("purchased_at", { ascending: false });
-
   const { students } = await getAgencyDashboardData(supabase, profile.agency_id);
-  const studentNameById = new Map(students.map((s: any) => [s.id, s.display_name]));
 
   const planStatus = agency?.plan_status || "inactive";
   const isConnected = !!agency?.stripe_customer_id;
@@ -137,22 +92,11 @@ export default async function AgencyBillingPage({
       )}
       {seat_action === "added" && (
         <div className="rounded border border-good/30 bg-good-tint text-good text-sm px-4 py-3 mb-6">
-          席次新增成功。
-        </div>
-      )}
-      {seat_action === "canceled" && (
-        <div className="rounded border border-good/30 bg-good-tint text-good text-sm px-4 py-3 mb-6">
-          席次已取消，款項將依比例退還。
-        </div>
-      )}
-      {seat_action === "upgraded" && (
-        <div className="rounded border border-good/30 bg-good-tint text-good text-sm px-4 py-3 mb-6">
-          席次已升級為進階席次。
-        </div>
-      )}
-      {seat_action === "cycle_set" && (
-        <div className="rounded border border-good/30 bg-good-tint text-good text-sm px-4 py-3 mb-6">
-          入學年度已設定，到期日已更新。
+          席次新增成功。前往
+          <Link href="/agency/students/new" className="underline mx-1">
+            新增學生
+          </Link>
+          即可將新席次指派給學生。
         </div>
       )}
       {error && (
@@ -233,7 +177,12 @@ export default async function AgencyBillingPage({
             </div>
           </div>
         </div>
-        <div className="text-xs text-slate mb-5">目前學生數：{students.length}</div>
+        <div className="text-xs text-slate mb-5">
+          目前學生數：{students.length} ·{" "}
+          <Link href="/agency/billing/students" className="text-brand underline">
+            查看席次與學生名單 →
+          </Link>
+        </div>
 
         {!isConnected && (
           <form action={createCheckoutSession} className="flex flex-wrap items-end gap-3 mb-3">
@@ -340,115 +289,13 @@ export default async function AgencyBillingPage({
             </p>
           </div>
 
-          <h3 className="font-display font-bold text-base mb-2">席次清單</h3>
-          {!seats || seats.length === 0 ? (
-            <div className="rounded border border-line bg-surface shadow-card p-8 text-center text-sm text-slate mb-6">
-              尚無席次紀錄。
-            </div>
-          ) : (
-            <>
-              {(
-                [
-                  { key: "unused", title: "新增、尚未使用的席次" },
-                  { key: "active", title: "使用中的席次" },
-                  { key: "archived", title: "已封存 / 已到期 / 已取消的席次" },
-                ] as const
-              ).map((group) => {
-                const groupSeats =
-                  group.key === "archived"
-                    ? seats.filter((s) => ["archived", "expired", "canceled"].includes(s.status))
-                    : seats.filter((s) => s.status === group.key);
-                if (groupSeats.length === 0) return null;
-                return (
-                  <div key={group.key} className="mb-6">
-                    <div className="text-xs font-semibold text-slate mb-2">
-                      {group.title}（{groupSeats.length}）
-                    </div>
-                    <div className="rounded border border-line bg-surface shadow-card divide-y divide-line">
-                      {groupSeats.map((seat) => {
-                        const cancelDaysLeft = daysLeftToCancel(seat.purchased_at);
-                        const canCancel = seat.status === "unused" && cancelDaysLeft > 0;
-                        const canUpgrade =
-                          seat.seat_type === "standard" &&
-                          (seat.status === "unused" || seat.status === "active");
-                        const studentName = seat.assigned_student_id
-                          ? studentNameById.get(seat.assigned_student_id) || "（未知學生）"
-                          : null;
-                        return (
-                          <div
-                            key={seat.id}
-                            className="p-4 flex items-center justify-between text-sm gap-3"
-                          >
-                            <div>
-                              <div className="font-semibold">
-                                {seat.seat_type === "premium" ? "進階席次" : "標準席次"}
-                                {studentName ? (
-                                  <span className="text-ink"> · {studentName}</span>
-                                ) : (
-                                  <span className="text-slate font-normal"> · 尚未指派學生</span>
-                                )}
-                              </div>
-                              <div className="text-xs text-slate">
-                                購買於 {new Date(seat.purchased_at).toLocaleDateString("zh-TW")} · 到期於{" "}
-                                {effectiveExpiresAt(seat).toLocaleDateString("zh-TW")}
-                                {seat.admission_cycle_end_year && (
-                                  <> · 入學年度 {seat.admission_cycle_end_year - 1}–{seat.admission_cycle_end_year}</>
-                                )}
-                              </div>
-                              {!seat.admission_cycle_end_year && seat.status === "unused" && (
-                                <form
-                                  action={setAdmissionCycle.bind(null, seat.id)}
-                                  className="flex items-center gap-1 mt-1"
-                                >
-                                  <span className="text-xs text-warn">尚未設定入學年度：</span>
-                                  <select
-                                    name="admission_cycle_end_year"
-                                    className="rounded border border-line px-1.5 py-0.5 text-xs"
-                                    defaultValue={admissionCycleOptions()[1]?.value}
-                                  >
-                                    {admissionCycleOptions().map((opt) => (
-                                      <option key={opt.value} value={opt.value}>
-                                        {opt.label}
-                                      </option>
-                                    ))}
-                                  </select>
-                                  <button type="submit" className="text-xs text-brand underline">
-                                    設定
-                                  </button>
-                                </form>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span
-                                className={`text-xs font-semibold px-2.5 py-1 rounded-full ${SEAT_STATUS_PILL[seat.status]}`}
-                              >
-                                {SEAT_STATUS_LABEL[seat.status]}
-                              </span>
-                              {canUpgrade && (
-                                <a
-                                  href={`/agency/billing/seats/${seat.id}/upgrade`}
-                                  className="text-xs text-brand underline"
-                                >
-                                  升級為進階
-                                </a>
-                              )}
-                              {canCancel && (
-                                <form action={cancelSeat.bind(null, seat.id)}>
-                                  <button type="submit" className="text-xs text-danger underline">
-                                    取消（剩 {cancelDaysLeft} 天可取消）
-                                  </button>
-                                </form>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </>
-          )}
+          <div className="rounded border border-line bg-slate-light/40 p-4 mb-6 text-sm text-slate">
+            個別席次的清單、指派、升級、取消與入學年度設定，現在都移到了
+            <Link href="/agency/students" className="text-brand underline mx-1">
+              學生總覽
+            </Link>
+            頁面（尚未分配的席次會顯示在該頁最上方）。這裡的「查看席次與學生名單」則提供一份純檢視用的席次數量與學生總表。
+          </div>
         </>
       )}
 

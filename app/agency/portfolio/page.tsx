@@ -22,10 +22,30 @@ export default async function AgencyPortfolioPage({
 }) {
   const { student: studentId } = await searchParams;
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("agency_id")
+    .eq("id", user!.id)
+    .single();
+
+  if (!profile?.agency_id) {
+    return <p className="text-sm text-danger">此帳號尚未加入任何機構。</p>;
+  }
+
+  // Batch 23: this previously queried every student in the entire
+  // platform with no agency filter, relying purely on RLS to narrow it
+  // down — scoping it explicitly here (same pattern as the students
+  // list page) is both a real names fix (an unscoped query is how a
+  // stale or cross-agency row could end up in the picker) and defense
+  // in depth alongside RLS, not just relying on it silently.
   const { data: students } = await supabase
     .from("profiles")
     .select("id, display_name")
+    .eq("agency_id", profile.agency_id)
     .eq("role", "student")
     .order("display_name");
 

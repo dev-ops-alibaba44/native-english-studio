@@ -22,10 +22,28 @@ export default async function AdvisorPortfolioPage({
 }) {
   const { student: studentId } = await searchParams;
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("agency_id")
+    .eq("id", user!.id)
+    .single();
+
+  if (!profile?.agency_id) {
+    return <p className="text-sm text-danger">此帳號尚未加入任何機構。</p>;
+  }
+
+  // Batch 23: same fix as the agency-admin portfolio page — advisors see
+  // every student at their own agency (per Batch 9.8's agency-wide
+  // advisor access model), not a platform-wide, unscoped list. Scoping
+  // this explicitly rather than relying purely on RLS.
   const { data: students } = await supabase
     .from("profiles")
     .select("id, display_name")
+    .eq("agency_id", profile.agency_id)
     .eq("role", "student")
     .order("display_name");
 

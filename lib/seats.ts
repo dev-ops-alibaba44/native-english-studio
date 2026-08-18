@@ -90,6 +90,44 @@ export function effectiveExpiresAt(seat: {
   return new Date(seat.expires_at);
 }
 
+// Shared with any page that needs to offer an admission-cycle picker
+// (the billing page's initial-checkout/add-seats forms, and now the
+// per-seat "set cycle" control that lives on the students page as of
+// Batch 23) — one definition so the list of offered years can't drift
+// between the two.
+export function admissionCycleOptions(): { value: number; label: string }[] {
+  const currentYear = new Date().getFullYear();
+  return Array.from({ length: 5 }).map((_, i) => {
+    const endYear = currentYear + i;
+    return { value: endYear, label: `${endYear - 1}–${endYear}（${endYear} 年 9 月入學）` };
+  });
+}
+
+// Shared with any page showing a seat's remaining cancel-window — moved
+// here in Batch 23 when seat-level actions moved from the billing page
+// onto the students page, so both (and the upgrade confirmation page)
+// agree on the same math.
+export function daysLeftToCancel(purchasedAt: string): number {
+  const ageMs = Date.now() - new Date(purchasedAt).getTime();
+  const daysLeft = 7 - Math.floor(ageMs / (24 * 60 * 60 * 1000));
+  return Math.max(0, daysLeft);
+}
+
+export const SEAT_STATUS_LABEL: Record<string, string> = {
+  unused: "尚未使用",
+  active: "使用中",
+  archived: "已封存",
+  expired: "已到期",
+  canceled: "已取消",
+};
+export const SEAT_STATUS_PILL: Record<string, string> = {
+  unused: "bg-slate-light text-slate",
+  active: "bg-good-tint text-good",
+  archived: "bg-slate-light text-slate line-through",
+  expired: "bg-danger-tint text-danger",
+  canceled: "bg-slate-light text-slate line-through",
+};
+
 export async function assertSeatActive(studentId: string): Promise<void> {
   const admin = createAdminClient();
 

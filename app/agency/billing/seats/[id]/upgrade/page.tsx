@@ -32,8 +32,8 @@ export default async function UpgradeSeatConfirmPage({
 
   return (
     <div className="max-w-lg">
-      <Link href="/agency/billing" className="text-xs text-slate mb-3 inline-block">
-        ← 取消，回到帳單與繳費
+      <Link href="/agency/students" className="text-xs text-slate mb-3 inline-block">
+        ← 取消，回到學生總覽
       </Link>
 
       <div className="rounded border border-warn/30 bg-warn-tint p-5">
@@ -57,7 +57,7 @@ export default async function UpgradeSeatConfirmPage({
           >
             我了解，確認升級
           </button>
-          <Link href="/agency/billing" className="text-sm text-slate underline">
+          <Link href="/agency/students" className="text-sm text-slate underline">
             取消
           </Link>
         </form>
