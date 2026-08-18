@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getSiteUrl } from "@/lib/site-url";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ---------------------------------------------------------------------
@@ -73,88 +73,104 @@ export async function createStudentAccount(formData: FormData) {
   const legalFullName = [legalFirstName, legalLastName].filter(Boolean).join(" ");
   const initialDisplayName = preferredName || legalFullName || chineseName;
 
-  const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    // Points straight at the client page that can actually read the
-    // session tokens Supabase's invite link returns — see the long
-    // comment in app/auth/set-password/page.tsx for why /auth/callback
-    // (a server Route Handler) can never work for this particular link
-    // type, regardless of what "next" it's given.
-    redirectTo: `${SITE_URL}/auth/set-password`,
-    data: { display_name: initialDisplayName },
-  });
+  // Batch 25: the rest of this function is wrapped in try/catch because
+  // an uncaught exception anywhere past this point (e.g. a transient
+  // Supabase/SMTP hiccup) was producing a raw, unhelpful crash page
+  // instead of a message the agency could act on. NEXT_REDIRECT is
+  // Next.js's own mechanism for redirect() — it works by throwing, so it
+  // has to be re-thrown here rather than swallowed, or every redirect()
+  // call in this function would silently stop working.
+  try {
+    const siteUrl = await getSiteUrl();
+    const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
+      // Points straight at the client page that can actually read the
+      // session tokens Supabase's invite link returns — see the long
+      // comment in app/auth/set-password/page.tsx for why /auth/callback
+      // (a server Route Handler) can never work for this particular link
+      // type, regardless of what "next" it's given.
+      redirectTo: `${siteUrl}/auth/set-password`,
+      data: { display_name: initialDisplayName },
+    });
 
-  if (inviteError || !invited?.user) {
-    const alreadyRegistered = /already.*registered|already.*exists/i.test(
-      inviteError?.message || ""
-    );
-    redirect(
-      `/agency/students/new?error=${alreadyRegistered ? "email_taken" : "invite_failed"}`
-    );
-  }
+    if (inviteError || !invited?.user) {
+      const alreadyRegistered = /already.*registered|already.*exists/i.test(
+        inviteError?.message || ""
+      );
+      redirect(
+        `/agency/students/new?error=${alreadyRegistered ? "email_taken" : "invite_failed"}`
+      );
+    }
 
-  const newStudentId = invited!.user.id;
+    const newStudentId = invited!.user.id;
 
-  // The on_auth_user_created trigger already inserted a bare profiles
-  // row (role='student' by default, agency_id null) synchronously as
-  // part of the user-creation transaction above — this fills it in with
-  // everything the agency just entered, locking each identity field
-  // immediately (same lock rules as the existing /identity page, just
-  // applied at creation time instead of after the fact).
-  const { error: profileError } = await admin
-    .from("profiles")
-    .update({
-      agency_id: agencyId,
-      role: "student",
-      email,
-      display_name: initialDisplayName,
-      birthdate,
-      birthdate_locked: true,
-      chinese_name: chineseName,
-      chinese_name_locked: true,
-      legal_first_name: legalFirstName,
-      legal_first_name_locked: true,
-      legal_last_name: legalLastName,
-      legal_last_name_locked: true,
-      ...(preferredName
-        ? { preferred_name: preferredName, preferred_name_changed_at: new Date().toISOString() }
-        : {}),
-    })
-    .eq("id", newStudentId);
-
-  if (profileError) {
-    redirect("/agency/students/new?error=profile_save_failed");
-  }
-
-  // Guard against a race (two staff picking the same seat at once) by
-  // only updating if the seat is still actually unassigned — .select()
-  // lets us see whether a row really changed, not just whether the
-  // query itself errored.
-  const { data: assignedSeatRows, error: seatAssignError } = await admin
-    .from("seats")
-    .update({ assigned_student_id: newStudentId })
-    .eq("id", seatId)
-    .is("assigned_student_id", null)
-    .select("id");
-
-  if (seatAssignError || !assignedSeatRows || assignedSeatRows.length === 0) {
-    // The account and profile both exist at this point, but the one
-    // thing that makes the account actually usable — a seat — didn't
-    // attach. Per Dan: don't leave this silently broken. Mark the
-    // profile so the students page can surface a clear warning and the
-    // cleanup cron (app/api/cron/cleanup-pending-students) can remove it
-    // automatically if nobody fixes it within 7 days.
-    await admin
+    // The on_auth_user_created trigger already inserted a bare profiles
+    // row (role='student' by default, agency_id null) synchronously as
+    // part of the user-creation transaction above — this fills it in
+    // with everything the agency just entered, locking each identity
+    // field immediately (same lock rules as the existing /identity page,
+    // just applied at creation time instead of after the fact).
+    const { error: profileError } = await admin
       .from("profiles")
       .update({
-        pending_seat_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        agency_id: agencyId,
+        role: "student",
+        email,
+        display_name: initialDisplayName,
+        birthdate,
+        birthdate_locked: true,
+        chinese_name: chineseName,
+        chinese_name_locked: true,
+        legal_first_name: legalFirstName,
+        legal_first_name_locked: true,
+        legal_last_name: legalLastName,
+        legal_last_name_locked: true,
+        ...(preferredName
+          ? { preferred_name: preferredName, preferred_name_changed_at: new Date().toISOString() }
+          : {}),
       })
       .eq("id", newStudentId);
 
-    revalidatePath("/agency/students");
-    redirect(`/agency/students?warning=seat_assignment_failed&student=${newStudentId}`);
-  }
+    if (profileError) {
+      redirect("/agency/students/new?error=profile_save_failed");
+    }
 
-  revalidatePath("/agency/students");
-  revalidatePath("/agency/billing/students");
-  redirect("/agency/students?success=student_created");
+    // Guard against a race (two staff picking the same seat at once) by
+    // only updating if the seat is still actually unassigned —
+    // .select() lets us see whether a row really changed, not just
+    // whether the query itself errored.
+    const { data: assignedSeatRows, error: seatAssignError } = await admin
+      .from("seats")
+      .update({ assigned_student_id: newStudentId })
+      .eq("id", seatId)
+      .is("assigned_student_id", null)
+      .select("id");
+
+    if (seatAssignError || !assignedSeatRows || assignedSeatRows.length === 0) {
+      // The account and profile both exist at this point, but the one
+      // thing that makes the account actually usable — a seat — didn't
+      // attach. Per Dan: don't leave this silently broken. Mark the
+      // profile so the students page can surface a clear warning and
+      // the cleanup cron (app/api/cron/cleanup-pending-students) can
+      // remove it automatically if nobody fixes it within 7 days.
+      await admin
+        .from("profiles")
+        .update({
+          pending_seat_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+        })
+        .eq("id", newStudentId);
+
+      revalidatePath("/agency/students");
+      redirect(`/agency/students?warning=seat_assignment_failed&student=${newStudentId}`);
+    }
+
+    revalidatePath("/agency/students");
+    revalidatePath("/agency/billing/students");
+    redirect("/agency/students?success=student_created");
+  } catch (err: any) {
+    if (err?.digest?.startsWith("NEXT_REDIRECT")) {
+      throw err; // a redirect() call above — let Next.js handle it normally
+    }
+    console.error("createStudentAccount: unexpected error", err);
+    redirect("/agency/students/new?error=unexpected_error");
+  }
 }

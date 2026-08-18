@@ -6,8 +6,7 @@ import {
   getStripe,
   STRIPE_PRICE_LICENSE,
 } from "@/lib/stripe";
-
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+import { getSiteUrl } from "@/lib/site-url";
 
 async function requireAgencyAdmin() {
   const supabase = await createClient();
@@ -84,6 +83,7 @@ export async function createCheckoutSession(formData: FormData) {
   // the two subscriptions bill, renew, and cancel independently instead
   // of showing one combined total.
 
+  const siteUrl = await getSiteUrl();
   const session = await getStripe().checkout.sessions.create({
     mode: "subscription",
     line_items,
@@ -106,8 +106,8 @@ export async function createCheckoutSession(formData: FormData) {
       requested_standard_seats: String(standardSeats),
       requested_premium_seats: String(premiumSeats),
     },
-    success_url: `${SITE_URL}/agency/billing?checkout=success`,
-    cancel_url: `${SITE_URL}/agency/billing?checkout=canceled`,
+    success_url: `${siteUrl}/agency/billing?checkout=success`,
+    cancel_url: `${siteUrl}/agency/billing?checkout=canceled`,
   });
 
   if (!session.url) {
@@ -131,7 +131,7 @@ export async function createPortalSession() {
   const session = await getStripe().billingPortal.sessions.create({
     customer: agency.stripe_customer_id,
     locale: "zh-TW",
-    return_url: `${SITE_URL}/agency/billing`,
+    return_url: `${await getSiteUrl()}/agency/billing`,
   });
 
   redirect(session.url);

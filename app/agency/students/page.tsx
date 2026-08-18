@@ -30,6 +30,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   seat_not_upgradable: "此席次狀態無法升級。",
   invalid_admission_cycle: "請選擇有效的入學年度。",
   stripe_not_configured: "付款系統尚未設定完成，請聯絡系統管理者設定 Stripe 價格 ID。",
+  seats_subscription_missing: "貴機構的席次訂閱在 Stripe 中已找不到，請聯絡系統管理者確認 Stripe 帳號設定，或重新建立席次訂閱。",
 };
 
 const SUCCESS_MESSAGES: Record<string, string> = {
@@ -79,7 +80,14 @@ export default async function AgencyStudentsPage({
     studentsQuery = studentsQuery.eq("primary_advisor_id", advisorFilter);
   }
 
-  const { data: studentsRaw } = await studentsQuery;
+  const { data: studentsRaw, error: studentsError } = await studentsQuery;
+  if (studentsError) {
+    // Batch 25: log rather than crash — a bad/missing column or a
+    // transient Supabase hiccup here used to have no visibility at all
+    // beyond "the page looked empty." Check Vercel's function logs for
+    // this line if the student list ever looks wrong.
+    console.error("AgencyStudentsPage: failed to load students", studentsError);
+  }
   const sortByDeadline = sort === "deadline";
   const students = sortByDeadline ? sortStudentsByDeadline(studentsRaw || []) : studentsRaw || [];
 
@@ -88,13 +96,16 @@ export default async function AgencyStudentsPage({
   // cycle) lives, having moved off the billing page along with the
   // removed 席次清單 — so unassigned seats need to be shown here too,
   // not just filtered into the assign-seat dropdown.
-  const { data: seatsRaw } = await supabase
+  const { data: seatsRaw, error: seatsError } = await supabase
     .from("seats")
     .select(
       "id, seat_type, status, assigned_student_id, purchased_at, expires_at, admission_cycle_end_year"
     )
     .eq("agency_id", profile.agency_id)
     .order("purchased_at", { ascending: false });
+  if (seatsError) {
+    console.error("AgencyStudentsPage: failed to load seats", seatsError);
+  }
 
   const allSeats = seatsRaw || [];
   const seatByStudentId = new Map(

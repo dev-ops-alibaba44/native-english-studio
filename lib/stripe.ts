@@ -52,3 +52,21 @@ export function getStripe(): Stripe {
 export const STRIPE_PRICE_LICENSE = process.env.STRIPE_PRICE_LICENSE || "";
 export const STRIPE_PRICE_SEAT_STANDARD = process.env.STRIPE_PRICE_SEAT_STANDARD || "";
 export const STRIPE_PRICE_SEAT_PREMIUM = process.env.STRIPE_PRICE_SEAT_PREMIUM || "";
+
+// Batch 25: cancelSeat/upgradeSeat both retrieve/modify a Stripe
+// subscription item by an ID stored on the seat row (`
+// stripe_subscription_item_id`). Dan hit "Customer ... does not have a
+// subscription with ID ..." on every cancel/upgrade attempt in testing —
+// the seat rows in the DB were pointing at Stripe subscription items
+// whose parent subscription no longer exists on that customer (most
+// likely from clearing Stripe test-mode data at some point while the
+// Supabase rows stuck around). This is a real scenario that can recur
+// any time Stripe and Supabase drift apart, not just a one-off — so
+// both actions now check for this specific error shape and treat a
+// vanished Stripe-side item as "already gone, nothing to do here"
+// rather than crashing the whole request.
+export function isStripeResourceMissing(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const e = err as { type?: string; code?: string; raw?: { code?: string } };
+  return e.type === "StripeInvalidRequestError" && (e.code === "resource_missing" || e.raw?.code === "resource_missing");
+}

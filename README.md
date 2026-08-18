@@ -2,6 +2,39 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 25 — Stripe stale-subscription-item crashes fixed, invite/checkout links no longer point at localhost, branded email templates for the rest of Supabase Auth, and agency-initiated advisor sign-up
+
+Seven items from Dan's testing report, in the order given.
+
+**(1) + (2) "Seat not found" on upgrade, and a hard crash on cancel — same root cause.** The error logs (`Customer cus_V5ETER... does not have a subscription with ID sub_1U540e...`) show exactly what happened: some seat rows in the database have `stripe_subscription_item_id` values pointing at a Stripe subscription that no longer exists on that customer — most likely left over from clearing Stripe test-mode data at some point while the corresponding Supabase rows stayed put. `cancelSeat` and `upgradeSeat` had no handling for that case at all, so any Stripe call against a vanished item threw straight through to a raw crash page. Both actions now catch specifically that error shape (`lib/stripe.ts`'s new `isStripeResourceMissing()`) and treat "this Stripe-side item is already gone" as an acceptable, expected state — there's nothing left to decrement or cancel on Stripe's side, so they proceed with the actual DB-side update instead of failing the whole request. If the entire seats *subscription* is gone (not just one item), upgrading now surfaces a clear, specific error instead of drifting the database out of sync with Stripe.
+
+**(3) Blank page after student creation.** Two contributing fixes, since the exact cause wasn't reproducible from the report alone:
+- `createStudentAccount` is now wrapped in proper error handling — any unexpected failure past the validation checks now redirects back with a readable message instead of crashing, and gets logged server-side for diagnosis. (Handled carefully: Next.js's `redirect()` works by throwing internally, so the code specifically re-throws anything that's actually a redirect rather than swallowing it — otherwise every redirect in the function would silently break.)
+- Both `/agency/students/new` and the student list itself now request a longer execution window (`maxDuration = 30`) — Batch 24's move to real SMTP sending (via your Custom SMTP setup) adds real latency on top of several sequential database calls, enough to plausibly exceed Vercel's default serverless timeout on an occasional slow request.
+- **Please double check `batch24_pending_seat_cleanup.sql` was actually run on production** — if that column is missing, it wouldn't necessarily show up as a crash (a missing-column query error doesn't throw), but it's the first thing worth ruling out. If this recurs after this batch, the Vercel function logs for that request (now with proper error logging in place) should point at the exact cause.
+
+**(4) Invite link crashing on click — you called it exactly right.** `redirectTo` was built from `NEXT_PUBLIC_SITE_URL`, which fell back to `http://localhost:3000` whenever that env var wasn't set — and it wasn't set on Vercel, so every invite link pointed at your own machine regardless of who clicked it. New `lib/site-url.ts` derives the correct URL from the actual incoming request instead (works automatically in local dev and on the real domain, no env var needed, though `NEXT_PUBLIC_SITE_URL` still overrides it if ever needed for an unusual setup). **The exact same bug existed in the Stripe checkout success/cancel URLs and the billing-portal return URL** — found and fixed those too, since they'd have sent you back to localhost after any billing action.
+
+**(5) Five more branded email templates**, matching the Invite user template's style (cream background, navy heading, your logo, Traditional Chinese copy) — all in `supabase/email-templates/`: `confirm-signup.html`, `magic-link-otp.html`, `change-email-address.html`, `reset-password.html`, `reauthentication.html`. Magic Link/OTP and Reauthentication show the raw `{{ .Token }}` code as well as (or instead of, for Reauthentication) a clickable button, since those are meant to be typed back into the app rather than always clicked. Paste each into Supabase Dashboard → Authentication → Email Templates → *(matching template)* → Message body.
+
+**Suggested Traditional Chinese subjects** (Supabase's Subject field is separate from the body — set these on each template):
+| Template | Subject |
+|---|---|
+| Invite user | 您的機構已經為您建立帳號 - Native English Studio |
+| Confirm sign up | 請確認您的電子郵件地址 - Native English Studio |
+| Magic Link or OTP | 您的登入連結 - Native English Studio |
+| Change email address | 請確認您的新電子郵件地址 - Native English Studio |
+| Reset password | 重設您的密碼 - Native English Studio |
+| Reauthentication | 您的驗證碼 - Native English Studio |
+
+**(7) Agencies can now sign up advisors themselves**, the same pattern as student sign-up minus everything student-specific: no once-locked identity fields, no seat to pick (advisors aren't billed per seat), no pending-deletion safety net (nothing here can fail partway in a way that leaves an unusable account, since there's no second resource like a seat that has to attach afterward). New `/agency/advisors/new` — email, name, and an optional starting 承接上限 (capacity; leave blank to use the app's existing default of 25, adjustable any time on `/agency/capacity` as before). A "+ 新增顧問" button now sits on `/agency/capacity` next to the existing per-advisor capacity list. Same invite-email-then-set-own-password flow as students.
+
+**How to apply:**
+1. No new SQL this batch — but if you haven't already, confirm `batch23_agency_student_signup.sql` and `batch24_pending_seat_cleanup.sql` both ran (relevant to item 3 above).
+2. Stop the dev server, unzip, `rm -rf node_modules .next package-lock.json && npm install && npm run build`.
+3. In Supabase Dashboard → Authentication → Email Templates: paste the 5 new templates and set all 6 subjects per the table above.
+4. Push.
+
 ## 🆕 Batch 24 — fixes to the Batch 23 sign-up flow: seat numbering, confirmation dialog, a real invite/password flow, branded email, and a safety net for failed seat assignment
 
 Nine specific issues Dan found testing Batch 23, in the order he listed them.

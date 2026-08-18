@@ -1,0 +1,65 @@
+<!--
+  Supabase Dashboard → Authentication → Email Templates → Change email address
+  → paste into "Message body". Suggested Subject (see README): 請確認您的新電子郵件地址 - Native English Studio
+
+  Supabase sends this to the NEW address the person is switching to.
+  {{ .ConfirmationURL }} is filled in by Supabase at send time.
+-->
+<!DOCTYPE html>
+<html>
+  <body style="margin:0; padding:0; background-color:#FAF8F5; font-family:Georgia, 'Times New Roman', serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#FAF8F5; padding:40px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="480" cellpadding="0" cellspacing="0" style="max-width:480px; width:100%; background-color:#FFFFFF; border:1px solid #E5E0D8; border-radius:6px; overflow:hidden;">
+
+            <tr>
+              <td align="center" style="background-color:#FAF8F5; padding:32px 24px 24px;">
+                <img src="https://nativeenglish.ca/logo.png" width="160" alt="Native English" style="display:block; width:160px; height:auto; border:0;" />
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:32px 32px 8px;">
+                <p style="margin:0 0 4px; font-size:18px; font-weight:bold; color:#172983;">
+                  請確認您的新電子郵件地址
+                </p>
+                <p style="margin:0 0 24px; font-size:13px; color:#6B7280;">
+                  Native English Studio
+                </p>
+                <p style="margin:0 0 24px; font-size:14px; line-height:1.7; color:#1F2937;">
+                  您好，我們收到將此電子郵件地址設為您 Native English Studio 帳號登入信箱的請求。請點選下方按鈕以確認。
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td align="center" style="padding:0 32px 32px;">
+                <a href="{{ .ConfirmationURL }}" style="display:inline-block; background-color:#172983; color:#FFFFFF; text-decoration:none; font-size:14px; font-weight:bold; padding:12px 32px; border-radius:4px;">
+                  確認新的電子郵件地址
+                </a>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:0 32px 32px;">
+                <p style="margin:0; font-size:12px; line-height:1.6; color:#9CA3AF;">
+                  如果您並未提出這項變更，請直接忽略這封信件，您的帳號登入信箱不會變更。此連結有時效性，如已過期請重新提出變更。
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="background-color:#FAF8F5; padding:20px 32px; border-top:1px solid #E5E0D8;">
+                <p style="margin:0; font-size:11px; color:#9CA3AF; text-align:center;">
+                  Native English Studio · info@nativeenglish.ca
+                </p>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

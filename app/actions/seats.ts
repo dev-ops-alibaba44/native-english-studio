@@ -8,6 +8,7 @@ import {
   getStripe,
   STRIPE_PRICE_SEAT_STANDARD,
   STRIPE_PRICE_SEAT_PREMIUM,
+  isStripeResourceMissing,
 } from "@/lib/stripe";
 import { admissionCycleExpiry, mapSubscriptionStatus } from "@/lib/seats";
 
@@ -271,15 +272,25 @@ export async function cancelSeat(seatId: string) {
   }
 
   if (seat!.stripe_subscription_item_id) {
-    const item = await getStripe().subscriptionItems.retrieve(seat!.stripe_subscription_item_id);
-    const newQty = Math.max(0, (item.quantity || 1) - 1);
-    if (newQty === 0) {
-      await getStripe().subscriptionItems.del(item.id, { proration_behavior: "create_prorations" });
-    } else {
-      await getStripe().subscriptionItems.update(item.id, {
-        quantity: newQty,
-        proration_behavior: "create_prorations",
-      });
+    try {
+      const item = await getStripe().subscriptionItems.retrieve(seat!.stripe_subscription_item_id);
+      const newQty = Math.max(0, (item.quantity || 1) - 1);
+      if (newQty === 0) {
+        await getStripe().subscriptionItems.del(item.id, { proration_behavior: "create_prorations" });
+      } else {
+        await getStripe().subscriptionItems.update(item.id, {
+          quantity: newQty,
+          proration_behavior: "create_prorations",
+        });
+      }
+    } catch (err) {
+      if (!isStripeResourceMissing(err)) throw err;
+      // The Stripe-side item (or its parent subscription) is already
+      // gone — nothing to decrement. Proceed with the DB-side cancel
+      // below; that's the part that actually matters to the agency.
+      console.error(
+        `cancelSeat: seat ${seatId}'s stripe_subscription_item_id ${seat!.stripe_subscription_item_id} no longer exists in Stripe — skipping Stripe update, canceling in DB only.`
+      );
     }
   }
 
@@ -322,39 +333,59 @@ export async function upgradeSeat(seatId: string) {
 
   // Decrement the standard item by one.
   if (seat!.stripe_subscription_item_id) {
-    const standardItem = await getStripe().subscriptionItems.retrieve(
-      seat!.stripe_subscription_item_id
-    );
-    const newQty = Math.max(0, (standardItem.quantity || 1) - 1);
-    if (newQty === 0) {
-      await getStripe().subscriptionItems.del(standardItem.id, {
-        proration_behavior: "create_prorations",
-      });
-    } else {
-      await getStripe().subscriptionItems.update(standardItem.id, {
-        quantity: newQty,
-        proration_behavior: "create_prorations",
-      });
+    try {
+      const standardItem = await getStripe().subscriptionItems.retrieve(
+        seat!.stripe_subscription_item_id
+      );
+      const newQty = Math.max(0, (standardItem.quantity || 1) - 1);
+      if (newQty === 0) {
+        await getStripe().subscriptionItems.del(standardItem.id, {
+          proration_behavior: "create_prorations",
+        });
+      } else {
+        await getStripe().subscriptionItems.update(standardItem.id, {
+          quantity: newQty,
+          proration_behavior: "create_prorations",
+        });
+      }
+    } catch (err) {
+      if (!isStripeResourceMissing(err)) throw err;
+      console.error(
+        `upgradeSeat: seat ${seatId}'s stripe_subscription_item_id ${seat!.stripe_subscription_item_id} no longer exists in Stripe — skipping the decrement step.`
+      );
     }
   }
 
-  // Increment (or create) the premium item by one.
-  const existingPremiumItem = await findSubscriptionItem(seatsSubscriptionId!, STRIPE_PRICE_SEAT_PREMIUM);
+  // Increment (or create) the premium item by one. If the whole seats
+  // subscription itself no longer exists in Stripe (not just this one
+  // item), there's no valid place to attach a premium item — that's a
+  // bigger problem than this action can safely paper over, so it's
+  // surfaced as a specific, actionable error rather than silently
+  // updating the DB out of sync with Stripe.
   let premiumItemId: string;
-  if (existingPremiumItem) {
-    const updated = await getStripe().subscriptionItems.update(existingPremiumItem.id, {
-      quantity: (existingPremiumItem.quantity || 0) + 1,
-      proration_behavior: "create_prorations",
-    });
-    premiumItemId = updated.id;
-  } else {
-    const created = await getStripe().subscriptionItems.create({
-      subscription: seatsSubscriptionId!,
-      price: STRIPE_PRICE_SEAT_PREMIUM,
-      quantity: 1,
-      proration_behavior: "create_prorations",
-    });
-    premiumItemId = created.id;
+  try {
+    const existingPremiumItem = await findSubscriptionItem(seatsSubscriptionId!, STRIPE_PRICE_SEAT_PREMIUM);
+    if (existingPremiumItem) {
+      const updated = await getStripe().subscriptionItems.update(existingPremiumItem.id, {
+        quantity: (existingPremiumItem.quantity || 0) + 1,
+        proration_behavior: "create_prorations",
+      });
+      premiumItemId = updated.id;
+    } else {
+      const created = await getStripe().subscriptionItems.create({
+        subscription: seatsSubscriptionId!,
+        price: STRIPE_PRICE_SEAT_PREMIUM,
+        quantity: 1,
+        proration_behavior: "create_prorations",
+      });
+      premiumItemId = created.id;
+    }
+  } catch (err) {
+    if (!isStripeResourceMissing(err)) throw err;
+    console.error(
+      `upgradeSeat: agency ${agencyId}'s seats subscription ${seatsSubscriptionId} no longer exists in Stripe.`
+    );
+    redirect("/agency/students?error=seats_subscription_missing");
   }
 
   await admin

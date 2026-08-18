@@ -20,12 +20,16 @@ const ERROR_MESSAGES: Record<string, string> = {
   capacity_invalid: "承接上限必須是大於 0 的數字。",
 };
 
+const SUCCESS_MESSAGES: Record<string, string> = {
+  advisor_created: "顧問帳號已建立，邀請信已寄出。",
+};
+
 export default async function AgencyCapacityPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, success } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -54,11 +58,24 @@ export default async function AgencyCapacityPage({
       <Link href="/agency" className="text-xs text-slate mb-3 inline-block">
         ← 回到機構總覽
       </Link>
-      <h1 className="font-display text-2xl font-bold text-ink mb-1">顧問產能</h1>
+      <div className="flex items-start justify-between gap-4 mb-1">
+        <h1 className="font-display text-2xl font-bold text-ink">顧問產能</h1>
+        <Link
+          href="/agency/advisors/new"
+          className="shrink-0 rounded bg-ink px-3 py-1.5 text-xs font-semibold text-white"
+        >
+          + 新增顧問
+        </Link>
+      </div>
       <p className="text-sm text-slate mb-6">
         依「可承接空間」排序 — 一眼看出誰還能接、誰已經滿載。
       </p>
 
+      {success && (
+        <div className="rounded border border-good/30 bg-good-tint text-good text-sm px-4 py-3 mb-6">
+          {SUCCESS_MESSAGES[success] || "操作成功！"}
+        </div>
+      )}
       {error && (
         <div className="rounded border border-danger/30 bg-danger-tint text-danger text-sm px-4 py-3 mb-6">
           {ERROR_MESSAGES[error] || "發生錯誤，請稍後再試。"}

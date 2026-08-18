@@ -4,6 +4,14 @@ import { createStudentAccount } from "@/app/actions/student-signup";
 import { admissionCycleOptions, numberSeatsByType } from "@/lib/seats";
 import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
+// Batch 25: raises the Vercel serverless function timeout for this
+// route above the platform default (10s on Hobby / 15s on Pro) — the
+// createStudentAccount action does a real SMTP send (via Custom SMTP,
+// since Batch 24) on top of several sequential DB calls, and Dan saw an
+// intermittent server-error page after submitting that's consistent
+// with the request occasionally running past the default limit.
+export const maxDuration = 30;
+
 const ERROR_MESSAGES: Record<string, string> = {
   missing_fields: "請完整填寫所有必填欄位（含選擇席次）。",
   invalid_email: "請輸入正確格式的電子郵件地址。",
@@ -11,6 +19,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   email_taken: "這個電子郵件地址已經有帳號了，請確認是否已建立過，或改用其他信箱。",
   invite_failed: "無法寄送邀請信，請稍後再試。",
   profile_save_failed: "帳號已建立，但學生資料儲存失敗，請聯絡系統管理者手動補上。",
+  unexpected_error: "發生非預期的錯誤，請稍後再試一次。如持續發生，請聯絡系統管理者。",
 };
 
 export default async function NewStudentPage({
