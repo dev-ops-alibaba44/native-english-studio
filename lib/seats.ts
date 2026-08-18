@@ -128,6 +128,30 @@ export const SEAT_STATUS_PILL: Record<string, string> = {
   canceled: "bg-slate-light text-slate line-through",
 };
 
+// Batch 24: agencies with several unassigned seats of the same type/
+// cycle had no way to tell them apart in either the students-page list
+// or the sign-up form's dropdown — every option looked identical. This
+// numbers each seat within its own type group (Standard #1, #2, …;
+// Premium #1, #2, … separately), computed fresh at render time from
+// purchase order (oldest first) rather than stored anywhere, so it stays
+// correct automatically as seats are added, assigned, or canceled — a
+// canceled "Standard #2" just means the next render numbers what used
+// to be "#3" as "#2", no stale numbers left behind.
+export function numberSeatsByType<T extends { id: string; seat_type: string; purchased_at: string }>(
+  seats: T[]
+): Map<string, number> {
+  const numberById = new Map<string, number>();
+  const sorted = [...seats].sort(
+    (a, b) => new Date(a.purchased_at).getTime() - new Date(b.purchased_at).getTime()
+  );
+  const counters: Record<string, number> = {};
+  for (const seat of sorted) {
+    counters[seat.seat_type] = (counters[seat.seat_type] || 0) + 1;
+    numberById.set(seat.id, counters[seat.seat_type]);
+  }
+  return numberById;
+}
+
 export async function assertSeatActive(studentId: string): Promise<void> {
   const admin = createAdminClient();
 

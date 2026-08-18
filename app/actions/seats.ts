@@ -411,6 +411,12 @@ export async function assignSeat(formData: FormData) {
 
   await admin.from("seats").update({ assigned_student_id: studentId }).eq("id", seatId);
 
+  // Batch 24: whichever path got a seat attached to this student — this
+  // manual dropdown, or a retry after the sign-up flow's own assignment
+  // step failed — clear the pending-deletion flag. A student with a real
+  // seat should never be on the cleanup cron's list.
+  await admin.from("profiles").update({ pending_seat_deadline: null }).eq("id", studentId);
+
   revalidatePath("/agency/students");
   redirect("/agency/students?success=1");
 }

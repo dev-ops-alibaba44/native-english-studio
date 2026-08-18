@@ -74,7 +74,12 @@ export async function createStudentAccount(formData: FormData) {
   const initialDisplayName = preferredName || legalFullName || chineseName;
 
   const { data: invited, error: inviteError } = await admin.auth.admin.inviteUserByEmail(email, {
-    redirectTo: `${SITE_URL}/auth/callback?next=/auth/set-password`,
+    // Points straight at the client page that can actually read the
+    // session tokens Supabase's invite link returns — see the long
+    // comment in app/auth/set-password/page.tsx for why /auth/callback
+    // (a server Route Handler) can never work for this particular link
+    // type, regardless of what "next" it's given.
+    redirectTo: `${SITE_URL}/auth/set-password`,
     data: { display_name: initialDisplayName },
   });
 
@@ -120,7 +125,34 @@ export async function createStudentAccount(formData: FormData) {
     redirect("/agency/students/new?error=profile_save_failed");
   }
 
-  await admin.from("seats").update({ assigned_student_id: newStudentId }).eq("id", seatId);
+  // Guard against a race (two staff picking the same seat at once) by
+  // only updating if the seat is still actually unassigned — .select()
+  // lets us see whether a row really changed, not just whether the
+  // query itself errored.
+  const { data: assignedSeatRows, error: seatAssignError } = await admin
+    .from("seats")
+    .update({ assigned_student_id: newStudentId })
+    .eq("id", seatId)
+    .is("assigned_student_id", null)
+    .select("id");
+
+  if (seatAssignError || !assignedSeatRows || assignedSeatRows.length === 0) {
+    // The account and profile both exist at this point, but the one
+    // thing that makes the account actually usable — a seat — didn't
+    // attach. Per Dan: don't leave this silently broken. Mark the
+    // profile so the students page can surface a clear warning and the
+    // cleanup cron (app/api/cron/cleanup-pending-students) can remove it
+    // automatically if nobody fixes it within 7 days.
+    await admin
+      .from("profiles")
+      .update({
+        pending_seat_deadline: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+      })
+      .eq("id", newStudentId);
+
+    revalidatePath("/agency/students");
+    redirect(`/agency/students?warning=seat_assignment_failed&student=${newStudentId}`);
+  }
 
   revalidatePath("/agency/students");
   revalidatePath("/agency/billing/students");

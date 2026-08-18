@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { createStudentAccount } from "@/app/actions/student-signup";
-import { admissionCycleOptions } from "@/lib/seats";
+import { admissionCycleOptions, numberSeatsByType } from "@/lib/seats";
+import { ConfirmSubmitButton } from "@/components/ConfirmSubmitButton";
 
 const ERROR_MESSAGES: Record<string, string> = {
   missing_fields: "請完整填寫所有必填欄位（含選擇席次）。",
@@ -38,13 +39,14 @@ export default async function NewStudentPage({
   // from, just now offered at creation time instead of only afterward.
   const { data: seatsRaw } = await supabase
     .from("seats")
-    .select("id, seat_type, admission_cycle_end_year")
+    .select("id, seat_type, admission_cycle_end_year, purchased_at")
     .eq("agency_id", profile.agency_id)
     .eq("status", "unused")
     .is("assigned_student_id", null)
     .order("purchased_at", { ascending: true });
 
   const availableSeats = seatsRaw || [];
+  const seatNumberById = numberSeatsByType(availableSeats);
   const cycleLabelByYear = new Map(admissionCycleOptions().map((o) => [o.value, o.label]));
 
   return (
@@ -162,7 +164,7 @@ export default async function NewStudentPage({
                 </option>
                 {availableSeats.map((seat) => (
                   <option key={seat.id} value={seat.id}>
-                    {seat.seat_type === "premium" ? "進階席次" : "標準席次"}
+                    {seat.seat_type === "premium" ? "進階席次" : "標準席次"} #{seatNumberById.get(seat.id)}
                     {seat.admission_cycle_end_year
                       ? ` · ${cycleLabelByYear.get(seat.admission_cycle_end_year) || seat.admission_cycle_end_year}`
                       : " · 尚未設定入學年度"}
@@ -171,12 +173,12 @@ export default async function NewStudentPage({
               </select>
             </div>
 
-            <button
-              type="submit"
+            <ConfirmSubmitButton
+              confirmMessage="確定要送出嗎？出生日期、中文姓名、英文法定名字與姓氏，送出後即會鎖定，之後只能透過學生的「基本資料」頁面修改「這一次」。請確認已再三檢查拼字與內容是否正確。"
               className="rounded bg-ink px-4 py-2 text-sm font-semibold text-white self-start"
             >
               建立學生帳號並寄送邀請信
-            </button>
+            </ConfirmSubmitButton>
           </form>
         </>
       )}

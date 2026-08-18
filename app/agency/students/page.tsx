@@ -10,6 +10,7 @@ import {
   admissionCycleOptions,
   daysLeftToCancel,
   effectiveExpiresAt,
+  numberSeatsByType,
 } from "@/lib/seats";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -44,11 +45,12 @@ export default async function AgencyStudentsPage({
     advisor?: string;
     error?: string;
     success?: string;
+    warning?: string;
     seat_action?: string;
     sort?: string;
   }>;
 }) {
-  const { advisor: advisorFilter, error, success, seat_action, sort } = await searchParams;
+  const { advisor: advisorFilter, error, success, warning, seat_action, sort } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -67,7 +69,7 @@ export default async function AgencyStudentsPage({
   let studentsQuery = supabase
     .from("profiles")
     .select(
-      "id, display_name, primary_advisor_id, is_archived, applications(id, stage, deadline, schools(name))"
+      "id, display_name, primary_advisor_id, is_archived, pending_seat_deadline, applications(id, stage, deadline, schools(name))"
     )
     .eq("agency_id", profile.agency_id)
     .eq("role", "student")
@@ -99,6 +101,7 @@ export default async function AgencyStudentsPage({
     allSeats.filter((s) => s.assigned_student_id).map((s) => [s.assigned_student_id, s])
   );
   const unassignedSeats = allSeats.filter((s) => !s.assigned_student_id && s.status === "unused");
+  const unassignedSeatNumberById = numberSeatsByType(unassignedSeats);
   const cycleLabelByYear = new Map(admissionCycleOptions().map((o) => [o.value, o.label]));
 
   // Preserve the advisor filter (if any) when switching sort mode.
@@ -163,6 +166,13 @@ export default async function AgencyStudentsPage({
           入學年度已設定，到期日已更新。
         </div>
       )}
+      {warning === "seat_assignment_failed" && (
+        <div className="rounded border border-danger/30 bg-danger-tint text-danger text-sm px-4 py-3 mb-6">
+          <b>學生帳號已建立，但席次指派失敗</b>
+          （可能是同時有另一位使用者選走了同一個席次）。請在下方為這位學生重新指派一個席次——如果 7
+          天內仍未指派，這個帳號將會被自動刪除。
+        </div>
+      )}
 
       {unassignedSeats.length > 0 && (
         <div className="mb-6">
@@ -178,7 +188,7 @@ export default async function AgencyStudentsPage({
                 <div key={seat.id} className="p-4 flex items-center justify-between text-sm gap-3">
                   <div>
                     <div className="font-semibold">
-                      {seat.seat_type === "premium" ? "進階席次" : "標準席次"}
+                      {seat.seat_type === "premium" ? "進階席次" : "標準席次"} #{unassignedSeatNumberById.get(seat.id)}
                       <span className="text-slate font-normal"> · 尚未指派學生</span>
                     </div>
                     <div className="text-xs text-slate">
@@ -235,6 +245,7 @@ export default async function AgencyStudentsPage({
         </div>
       )}
 
+      <h3 className="font-display font-bold text-base mb-2">已註冊學生（{students.length}）</h3>
       <div className="flex items-center gap-2 mb-6">
         <Link
           href={`/agency/students?sort=name${sortLinkSuffix}`}
@@ -272,6 +283,13 @@ export default async function AgencyStudentsPage({
               (seat?.status === "unused" || seat?.status === "active");
             return (
             <div key={student.id} className="rounded border border-line bg-surface shadow-card p-5">
+              {!seat && student.pending_seat_deadline && (
+                <div className="rounded border border-danger/30 bg-danger-tint text-danger text-xs px-3 py-2 mb-3">
+                  ⚠️ 尚未成功指派席次，此帳號將於{" "}
+                  <b>{new Date(student.pending_seat_deadline).toLocaleDateString("zh-TW")}</b>{" "}
+                  自動刪除。請盡快於右方指派一個席次。
+                </div>
+              )}
               <div className="flex items-center justify-between mb-3">
                 <div className="font-display font-bold text-base">{student.display_name}</div>
                 <div className="flex items-center gap-3 flex-wrap justify-end">
@@ -297,7 +315,7 @@ export default async function AgencyStudentsPage({
                         </option>
                         {unassignedSeats.map((s) => (
                           <option key={s.id} value={s.id}>
-                            {s.seat_type === "premium" ? "進階席次" : "標準席次"}
+                            {s.seat_type === "premium" ? "進階席次" : "標準席次"} #{unassignedSeatNumberById.get(s.id)}
                           </option>
                         ))}
                       </select>
