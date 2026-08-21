@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { syncParentAccountFromStripe } from "@/lib/parent-billing";
 import { createParentPortalSession } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -22,22 +23,42 @@ const ERROR_MESSAGES: Record<string, string> = {
   no_subscription_yet: "尚未有訂閱紀錄。",
 };
 
+function formatCents(amount: number | null, currency: string | null) {
+  if (amount == null) return "—";
+  const value = amount / 100;
+  return `${(currency || "usd").toUpperCase()} ${value.toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+  })}`;
+}
+
 export default async function ParentBillingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; checkout?: string }>;
+  searchParams: Promise<{ error?: string; checkout?: string; session_id?: string }>;
 }) {
-  const { error, checkout } = await searchParams;
+  const { error, checkout, session_id } = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Batch 28 fix: reconcile with Stripe directly rather than only ever
+  // trusting whatever the webhook last wrote — see lib/parent-billing.ts
+  // for why. Cheap (a couple of Stripe API calls) and only runs on this
+  // page's own load, so it doesn't slow down anything else.
+  await syncParentAccountFromStripe(user!.id, session_id || null);
 
   const { data: parentAccount } = await supabase
     .from("parent_accounts")
     .select("plan_status, trial_ends_at, current_period_end, trial_ai_calls_used")
     .eq("id", user!.id)
     .maybeSingle();
+
+  const { data: invoices } = await supabase
+    .from("parent_billing_events")
+    .select("id, amount_total, currency, status, hosted_invoice_url, created_at")
+    .eq("parent_id", user!.id)
+    .order("created_at", { ascending: false });
 
   const status = parentAccount?.plan_status || "inactive";
 
@@ -89,6 +110,45 @@ export default async function ParentBillingPage({
           </button>
         </form>
       </div>
+
+      <h3 className="font-display font-bold text-base mb-2">帳單紀錄</h3>
+      {!invoices || invoices.length === 0 ? (
+        <div className="rounded border border-line bg-surface shadow-card p-8 text-center text-sm text-slate mb-6">
+          尚無帳單紀錄。
+        </div>
+      ) : (
+        <div className="rounded border border-line bg-surface shadow-card divide-y divide-line mb-6">
+          {invoices.map((inv) => (
+            <div key={inv.id} className="p-4 flex items-center justify-between text-sm">
+              <div>
+                <div className="font-semibold">
+                  {new Date(inv.created_at).toLocaleDateString("zh-TW")}
+                </div>
+                <div className="text-xs text-slate">{inv.status}</div>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="font-semibold">
+                  {formatCents(inv.amount_total, inv.currency)}
+                </span>
+                {inv.hosted_invoice_url && (
+                  <a
+                    href={inv.hosted_invoice_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-brand underline"
+                  >
+                    查看發票
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs text-slate">
+        付款方式由 Stripe 安全託管，點選上方「管理付款方式」即可新增/更換信用卡。
+      </p>
     </div>
   );
 }

@@ -352,6 +352,31 @@ export async function POST(req: NextRequest) {
           typeof invoice.customer === "string" ? invoice.customer : invoice.customer?.id;
         if (!customerId) break;
 
+        // Batch 28 (item 1): a customer is either an agency or a parent,
+        // never both — same safe short-circuit pattern already used for
+        // customer.subscription.updated/deleted above.
+        const parentAccount = await findParentAccountForCustomer(admin, customerId);
+        if (parentAccount) {
+          // Keyed by the INVOICE id (not event.id) so this can never
+          // create a duplicate row alongside lib/parent-billing.ts's
+          // syncParentInvoiceHistory(), which reconciles the same
+          // invoices live and uses the same key — see that file's
+          // comments for why a live fallback exists at all.
+          await admin.from("parent_billing_events").upsert(
+            {
+              parent_id: parentAccount.id,
+              stripe_event_id: `invoice_${invoice.id}`,
+              type: event.type,
+              amount_total: invoice.amount_paid,
+              currency: invoice.currency,
+              status: invoice.status,
+              hosted_invoice_url: invoice.hosted_invoice_url,
+            },
+            { onConflict: "stripe_event_id" }
+          );
+          break;
+        }
+
         const agency = await findAgencyForCustomer(admin, customerId);
         if (!agency) break;
 

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { getSiteUrl } from "@/lib/site-url";
+import { syncParentAccountFromStripe } from "@/lib/parent-billing";
 
 // ---------------------------------------------------------------------
 // Batch 27: parent's own equivalent of app/agency/billing/actions.ts's
@@ -29,6 +30,12 @@ export async function createParentPortalSession() {
   if (!profile || profile.role !== "parent") {
     throw new Error("Only a parent account can manage billing here.");
   }
+
+  // Batch 28: same live-reconcile safety net as the billing page itself
+  // — see lib/parent-billing.ts. Covers the case where this button is
+  // clicked before the webhook (or a prior page load) has ever synced
+  // stripe_customer_id onto this row yet.
+  await syncParentAccountFromStripe(user.id);
 
   const { data: parentAccount } = await supabase
     .from("parent_accounts")

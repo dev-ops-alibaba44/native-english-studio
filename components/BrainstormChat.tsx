@@ -14,8 +14,16 @@ const ERROR_MESSAGES: Record<string, string> = {
   ai_request_failed: "AI 請求失敗，請稍後再試。",
   ai_empty_response: "AI 未能產生回覆，請稍後再試。",
   not_signed_in: "請重新登入後再試。",
+  not_authorized: "您沒有權限為這位學生使用此功能。",
   daily_limit_reached: "今日 AI 腦力激盪次數已達上限，請明天再繼續，或直接把目前想法儲存下來。",
   parent_trial_limit_reached: "7 天試用期間的 AI 使用次數已達上限。付款啟用正式帳號後即可恢復使用。",
+  no_seat: "此學生尚未分配席次，請聯絡機構管理者於「帳單與繳費」頁面指派席次。",
+  expired: "此席次已到期（入學年度已結束），目前僅能檢視，無法編輯。",
+  archived: "此學生帳號已被機構封存，目前僅能檢視，無法編輯。",
+  canceled: "此席次已取消，無法使用。",
+  license_inactive: "貴機構的授權訂閱目前未生效，請至「帳單與繳費」確認訂閱狀態。",
+  seats_inactive: "貴機構的席次訂閱目前未生效，請至「帳單與繳費」確認訂閱狀態。",
+  parent_account_inactive: "此帳號的訂閱目前未生效，請完成付款以繼續使用。",
 };
 
 export function BrainstormChat({
@@ -50,7 +58,7 @@ export function BrainstormChat({
     setMessages(nextMessages);
     setInput("");
 
-    const result = await brainstormReply(messages, text);
+    const result = await brainstormReply(messages, text, studentId);
     if (!result.success) {
       setError(result.error);
       setLoading(false);

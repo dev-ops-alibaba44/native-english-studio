@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 
 export default function LoginPage() {
@@ -62,9 +63,14 @@ export default function LoginPage() {
           placeholder="you@example.com"
         />
 
-        <label className="block text-sm font-medium text-ink mb-1" htmlFor="password">
-          密碼
-        </label>
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-sm font-medium text-ink" htmlFor="password">
+            密碼
+          </label>
+          <Link href="/auth/forgot-password" className="text-xs text-brand underline">
+            忘記密碼？
+          </Link>
+        </div>
         <input
           id="password"
           type="password"

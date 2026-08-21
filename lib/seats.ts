@@ -206,11 +206,30 @@ export async function assertSeatActive(studentId: string): Promise<void> {
     .maybeSingle();
 
   if (studentProfile?.parent_id) {
-    const { data: parentAccount } = await admin
+    let { data: parentAccount } = await admin
       .from("parent_accounts")
       .select("plan_status")
       .eq("id", studentProfile.parent_id)
       .maybeSingle();
+
+    if (!parentAccount || !["trialing", "active"].includes(parentAccount.plan_status)) {
+      // Batch 28: don't fail closed on the first check alone — the
+      // stored plan_status only ever gets updated by the Stripe webhook
+      // or by the parent loading their own /parent or /parent/billing
+      // page (see lib/parent-billing.ts). A student can easily act
+      // before either of those has happened even though the parent's
+      // payment genuinely went through. One live reconcile attempt here
+      // means a student isn't blocked just because their parent hasn't
+      // looked at the app since checking out.
+      const { syncParentAccountFromStripe } = await import("@/lib/parent-billing");
+      await syncParentAccountFromStripe(studentProfile.parent_id);
+      const { data: refreshed } = await admin
+        .from("parent_accounts")
+        .select("plan_status")
+        .eq("id", studentProfile.parent_id)
+        .maybeSingle();
+      parentAccount = refreshed;
+    }
 
     if (!parentAccount || !["trialing", "active"].includes(parentAccount.plan_status)) {
       throw new SeatInactiveError("parent_account_inactive", SEAT_ERROR_MESSAGES.parent_account_inactive);

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { syncParentAccountFromStripe } from "@/lib/parent-billing";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,12 @@ export default async function ParentHomePage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Batch 28 fix: same live-reconciliation safety net as
+  // /parent/billing — see lib/parent-billing.ts. A parent whose
+  // checkout webhook hasn't landed yet shouldn't see a stuck "not
+  // active" banner just because they happened to land here first.
+  await syncParentAccountFromStripe(user!.id);
 
   const { data: parentAccount } = await supabase
     .from("parent_accounts")

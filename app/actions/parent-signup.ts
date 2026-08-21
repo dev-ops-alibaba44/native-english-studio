@@ -190,7 +190,7 @@ export async function signUpParentAndFirstChild(formData: FormData) {
         metadata: { kind: "parent", parent_id: parentId, child_id: childId, seat_tier: seatTier },
       },
       metadata: { kind: "parent", parent_id: parentId, child_id: childId, seat_tier: seatTier },
-      success_url: `${siteUrl}/parent/billing?checkout=success`,
+      success_url: `${siteUrl}/parent/billing?checkout=success&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${siteUrl}/parent/billing?checkout=canceled`,
     });
 

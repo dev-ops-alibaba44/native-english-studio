@@ -12,7 +12,9 @@ export interface BrainstormMessage {
 }
 
 // Resource cap (Dan's request 3): a generous but real daily ceiling on AI
-// brainstorming calls per person, so a runaway/looping session (or several
+// brainstorming calls per STUDENT (not per caller — an advisor helping
+// three different students in one day uses each student's own 30/day
+// allowance, not a shared one), so a runaway/looping session (or several
 // long ones in a day) can't quietly rack up cost. 30 calls/day is roughly
 // 5-6 genuine back-and-forth conversations — plenty for real use, but not
 // unbounded. Counted via brainstorm_usage_log, one row per successful call.
@@ -65,7 +67,8 @@ export async function getBrainstormUsageToday(
 
 export async function brainstormReply(
   history: BrainstormMessage[],
-  newMessage: string
+  newMessage: string,
+  studentId: string
 ): Promise<{ success: true; reply: string } | { success: false; error: string }> {
   const trimmed = newMessage.trim();
   if (!trimmed) return { success: false, error: "empty_message" };
@@ -77,17 +80,42 @@ export async function brainstormReply(
   } = await supabase.auth.getUser();
   if (!user) return { success: false, error: "not_signed_in" };
 
+  // Batch 28 fix: this used to check/log against `user.id` (the
+  // CALLER), which is correct when a student is chatting for
+  // themselves but wrong the moment an advisor or agency admin uses
+  // this on a student's behalf (see /advisor/prompts,
+  // /agency/prompts) — it was checking the advisor's own (nonexistent)
+  // seat instead of the student they're actually helping, so every
+  // advisor brainstorm call silently failed with "no_seat" even though
+  // the terminal showed a clean 200 (the server action itself
+  // succeeded; only its returned success:false payload signaled the
+  // real failure). Every other AI action (ai-feedback.ts,
+  // profile-assessment.ts) already took an explicit studentId for
+  // exactly this reason — this brings brainstormReply in line with
+  // that same pattern.
+  //
+  // Access check reuses the existing profiles RLS policies (self, or
+  // advisor/agency_admin in the same agency) rather than
+  // re-implementing that role logic here — same approach documented in
+  // ai-feedback.ts.
+  const { data: studentProfile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", studentId)
+    .maybeSingle();
+  if (!studentProfile) return { success: false, error: "not_authorized" };
+
   try {
-    await assertSeatActive(user.id);
+    await assertSeatActive(studentId);
   } catch (err) {
     if (err instanceof SeatInactiveError) return { success: false, error: err.code };
     throw err;
   }
 
-  const trialQuota = await checkAndConsumeParentTrialAiQuota(user.id);
+  const trialQuota = await checkAndConsumeParentTrialAiQuota(studentId);
   if (!trialQuota.allowed) return { success: false, error: "parent_trial_limit_reached" };
 
-  const withinQuota = await checkAndLogQuota(user.id);
+  const withinQuota = await checkAndLogQuota(studentId);
   if (!withinQuota) return { success: false, error: "daily_limit_reached" };
 
   const recentHistory = history.slice(-HISTORY_WINDOW);

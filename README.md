@@ -2,6 +2,35 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 28 — parent invoice history, parent subscription stuck on "inactive," advisors blocked from AI, forgot/reset password
+
+Six items from Dan's testing report on Batch 27, in the order given.
+
+**(1) Real parent invoice history table.** The Batch 27 "known simplification" (parents view invoices only via Stripe's hosted billing portal) is gone. New `parent_billing_events` table (`batch28_parent_billing_and_fixes.sql`), same shape and same RLS pattern as the agency-side `billing_events` table — parents can only read their own rows, super_admin reads all, only the webhook (service-role key) writes. `/parent/billing` now shows a real "帳單紀錄" list identical in style to the agency billing page's.
+
+**(2) + (3) Parent subscription stuck showing inactive even after a successful Stripe payment.** Root cause: `parent_accounts.plan_status` was **only ever** updated by the Stripe webhook — nothing else in the app ever checked back with Stripe. If the webhook doesn't fire promptly (in local dev specifically: if `stripe listen --forward-to localhost:3000/api/stripe/webhook` isn't running, the webhook never reaches your machine at all, regardless of whether the payment succeeded), the flag just stays stuck on `inactive` forever — which is exactly what `assertSeatActive()` correctly, if unhelpfully, blocks on. This is what caused the "no access to any subscription" (parent) and the "no access to AI/portfolio, parent_account_inactive" (student) errors in your screenshots — same root cause behind both.
+  - **Fix — new `lib/parent-billing.ts`, same philosophy as Batch 21's `effectiveExpiresAt()`:** don't only trust a stored flag that depends on some other write path having already run — derive the real state live from Stripe whenever there's a cheap, obvious moment to check. `syncParentAccountFromStripe()` now runs on every load of `/parent` and `/parent/billing`, and also inside `assertSeatActive()` itself as a last-resort self-heal right before it would otherwise throw `parent_account_inactive` — so even a student acting before their parent has ever revisited the app gets unblocked automatically the moment their parent's Stripe subscription is genuinely active.
+  - The checkout success URL now passes Stripe's own `{CHECKOUT_SESSION_ID}` through (`app/actions/parent-signup.ts`), so the very first `/parent/billing` load after checkout can reconcile straight from the Checkout Session itself — no waiting on the webhook at all for that first, most time-sensitive moment.
+  - The webhook remains the primary mechanism (still what reacts to cancellation, e.g. the trial-wipe) — this is a supplementary safety net, not a replacement.
+  - **Please confirm your local Stripe CLI is forwarding webhooks when testing locally** (`stripe listen --forward-to localhost:3000/api/stripe/webhook`) — this fix makes the app resilient to a slow/missing webhook, but a webhook that never runs at all still means cancellations won't be caught locally either.
+
+**(4) Advisors couldn't use AI brainstorming.** Found it: `brainstormReply()` in `app/actions/brainstorm.ts` checked `assertSeatActive(user.id)` — the **caller's own** ID — instead of the student being helped. For a student chatting for themselves that's harmless (same person), but the moment an advisor uses `/advisor/prompts`, it was checking the *advisor's* own (nonexistent) seat instead of the student's, so it silently failed with `no_seat` every time — which is why your terminal showed a clean `200` (the server action itself completed fine; only its returned `success:false` payload signaled the real failure, invisible in the terminal). Every other AI action (`ai-feedback.ts`, `profile-assessment.ts`) already took an explicit `studentId` for exactly this reason; `brainstormReply` was the one outlier. Now takes `studentId` explicitly (threaded through from `BrainstormChat.tsx`, which already had it as a prop) and checks/logs against that student throughout — seat check, parent-trial quota, and the daily 30-call quota all now correctly apply per-student rather than per-caller.
+
+**(5)** No bug — this was your confirmation that agency-linked students work correctly, which matches what testing this found (that path was never broken).
+
+**(6) No forgot-password or change-password anywhere.** `/login` is shared by all four roles (parent, agency, advisor, student), so one fix covers everyone:
+  - New "忘記密碼？" link on `/login`.
+  - New `/auth/forgot-password` — email in, calls `supabase.auth.resetPasswordForEmail()`. Always shows the same success message regardless of whether the email is registered (Supabase's own anti-enumeration behavior).
+  - New `/auth/reset-password` — where the reset email's link lands. Same hash-fragment parsing as the existing, working `/auth/set-password` (Batch 24) and for the same reason: Supabase's recovery links return the session as `#access_token=...` in the URL fragment, which only a client page can read. Uses the branded `reset-password.html` template already created back in Batch 25, which was sitting unused until now.
+
+**How to apply:**
+1. Run `supabase/batch28_parent_billing_and_fixes.sql`.
+2. Stop the dev server, unzip, `rm -rf node_modules .next package-lock.json && npm install && npm run build`.
+3. If testing locally, make sure `stripe listen --forward-to localhost:3000/api/stripe/webhook` is running in a terminal alongside `npm run dev` — see item (2)/(3) above.
+4. Push.
+
+**Known open item, not addressed this batch:** agency self-signup (`/signup/agency/create`, Batch 27) reuses the exact same webhook-only pattern that caused (2)/(3) for `agencies.plan_status`. It wasn't reported as broken, so it wasn't touched here to keep this batch's blast radius contained to what was actually reported — but if a freshly self-signed-up agency ever shows the same "paid but still inactive" symptom, the fix would be the same shape (a `syncAgencyAccountFromStripe()` alongside the parent one).
+
 ## 🆕 Batch 27 — agency self-signup, parent/individual direct-to-consumer accounts with a 7-day trial, and multi-advisor assignment
 
 Three big items from Dan's request, in order.

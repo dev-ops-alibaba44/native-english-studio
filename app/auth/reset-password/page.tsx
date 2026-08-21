@@ -1,0 +1,163 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import Image from "next/image";
+import { createClient } from "@/lib/supabase/client";
+
+// ---------------------------------------------------------------------
+// Batch 28 (item 6): where a password-reset email's link lands. Same
+// hash-fragment parsing as /auth/set-password (Batch 24) and for the
+// exact same reason — Supabase's recovery links also return the session
+// as #access_token=...&refresh_token=... in the URL FRAGMENT, not a
+// server-visible ?code= param, so this has to be a client page that
+// reads window.location.hash directly rather than a server Route
+// Handler. See /auth/set-password's comment for the full explanation;
+// deliberately kept as a separate page (not a shared one) so the copy
+// here can say "reset your password" instead of "your organization
+// created an account for you".
+// ---------------------------------------------------------------------
+export default function ResetPasswordPage() {
+  const router = useRouter();
+  const supabase = createClient();
+
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    async function establishSession() {
+      const hash = window.location.hash?.startsWith("#")
+        ? window.location.hash.slice(1)
+        : "";
+      const hashParams = new URLSearchParams(hash);
+      const accessToken = hashParams.get("access_token");
+      const refreshToken = hashParams.get("refresh_token");
+
+      if (accessToken && refreshToken) {
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (!sessionError) {
+          window.history.replaceState(null, "", window.location.pathname);
+          setSessionReady(true);
+          setCheckingSession(false);
+          return;
+        }
+      }
+
+      const { data } = await supabase.auth.getSession();
+      setSessionReady(!!data.session);
+      setCheckingSession(false);
+    }
+    establishSession();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (password.length < 8) {
+      setError("密碼至少需要 8 個字元。");
+      return;
+    }
+    if (password !== confirm) {
+      setError("兩次輸入的密碼不一致。");
+      return;
+    }
+
+    setLoading(true);
+    const { error: updateError } = await supabase.auth.updateUser({ password });
+
+    if (updateError) {
+      setError("設定密碼失敗，請重新申請重設密碼信件。");
+      setLoading(false);
+      return;
+    }
+
+    router.push("/dashboard");
+    router.refresh();
+  }
+
+  return (
+    <main className="min-h-screen flex flex-col items-center justify-center gap-8 px-6">
+      <Image
+        src="/logo.png"
+        alt="Native English"
+        width={1389}
+        height={288}
+        priority
+        className="h-auto w-[200px]"
+      />
+
+      <div className="w-full max-w-sm rounded border border-line bg-surface p-6 shadow-card">
+        {checkingSession ? (
+          <p className="text-sm text-slate">正在驗證連結…</p>
+        ) : !sessionReady ? (
+          <>
+            <h1 className="font-display text-lg font-bold text-ink mb-1">連結已失效</h1>
+            <p className="text-sm text-slate">
+              這個重設密碼連結無法使用，可能已經過期或已經被使用過。請回到
+              <a href="/auth/forgot-password" className="text-brand underline mx-1">
+                忘記密碼
+              </a>
+              頁面重新申請一次。
+            </p>
+          </>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <h1 className="font-display text-lg font-bold text-ink mb-1">設定新密碼</h1>
+            <p className="text-sm text-slate mb-6">請輸入您的新密碼。</p>
+
+            <label className="block text-sm font-medium text-ink mb-1" htmlFor="password">
+              新密碼
+            </label>
+            <input
+              id="password"
+              type="password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="w-full rounded border border-line px-3 py-2 mb-4 text-sm focus:border-brand outline-none"
+              placeholder="至少 8 個字元"
+            />
+
+            <label className="block text-sm font-medium text-ink mb-1" htmlFor="confirm">
+              再次輸入密碼
+            </label>
+            <input
+              id="confirm"
+              type="password"
+              required
+              minLength={8}
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              className="w-full rounded border border-line px-3 py-2 mb-4 text-sm focus:border-brand outline-none"
+              placeholder="••••••••"
+            />
+
+            {error && (
+              <p className="text-sm text-danger mb-4" role="alert">
+                {error}
+              </p>
+            )}
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full rounded bg-ink py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {loading ? "設定中…" : "設定新密碼並登入"}
+            </button>
+          </form>
+        )}
+      </div>
+    </main>
+  );
+}
