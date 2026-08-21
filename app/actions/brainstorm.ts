@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthropic";
 import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
+import { checkAndConsumeParentTrialAiQuota } from "@/lib/parent-trial";
 
 export interface BrainstormMessage {
   role: "user" | "assistant";
@@ -82,6 +83,9 @@ export async function brainstormReply(
     if (err instanceof SeatInactiveError) return { success: false, error: err.code };
     throw err;
   }
+
+  const trialQuota = await checkAndConsumeParentTrialAiQuota(user.id);
+  if (!trialQuota.allowed) return { success: false, error: "parent_trial_limit_reached" };
 
   const withinQuota = await checkAndLogQuota(user.id);
   if (!withinQuota) return { success: false, error: "daily_limit_reached" };

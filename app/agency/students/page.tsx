@@ -5,6 +5,7 @@ import { type Stage } from "@/lib/stages";
 import { createApplicationFor } from "@/app/actions/applications";
 import { sortApplicationsByDeadline, sortStudentsByDeadline } from "@/lib/deadlines";
 import { assignSeat, cancelSeat, setAdmissionCycle } from "@/app/actions/seats";
+import { updateStudentAdvisors } from "@/app/actions/student-advisors";
 import {
   SEAT_ERROR_MESSAGES,
   admissionCycleOptions,
@@ -12,6 +13,18 @@ import {
   effectiveExpiresAt,
   numberSeatsByType,
 } from "@/lib/seats";
+
+// Batch 26: forces this page to always render fresh on every request,
+// never served from Next.js's route cache. Dan reported a student
+// vanishing from this list immediately after an upgrade action, then
+// reappearing on manual reload — the classic symptom of a stale cached
+// render being reused right after a server-action redirect, even though
+// revalidatePath("/agency/students") is already called from every
+// action that changes this page's data. force-dynamic removes any doubt
+// by opting this route out of caching entirely, at the cost of a fresh
+// DB round-trip on every visit — an acceptable trade for a page that's
+// only ever viewed by agency staff, not a high-traffic public page.
+export const dynamic = "force-dynamic";
 
 const ERROR_MESSAGES: Record<string, string> = {
   ...SEAT_ERROR_MESSAGES,
@@ -31,12 +44,15 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_admission_cycle: "請選擇有效的入學年度。",
   stripe_not_configured: "付款系統尚未設定完成，請聯絡系統管理者設定 Stripe 價格 ID。",
   seats_subscription_missing: "貴機構的席次訂閱在 Stripe 中已找不到，請聯絡系統管理者確認 Stripe 帳號設定，或重新建立席次訂閱。",
+  too_many_advisors: "每位學生最多只能指派 3 位顧問。",
+  advisor_assign_failed: "指派顧問失敗，請稍後再試。",
 };
 
 const SUCCESS_MESSAGES: Record<string, string> = {
   "1": "新增成功！",
   student_created: "學生帳號已建立，邀請信已寄出。",
   archived: "學生已封存。",
+  advisors_updated: "顧問指派已更新。",
 };
 
 export default async function AgencyStudentsPage({
@@ -70,15 +86,16 @@ export default async function AgencyStudentsPage({
   let studentsQuery = supabase
     .from("profiles")
     .select(
-      "id, display_name, primary_advisor_id, is_archived, pending_seat_deadline, applications(id, stage, deadline, schools(name))"
+      "id, display_name, is_archived, pending_seat_deadline, applications(id, stage, deadline, schools(name))"
     )
     .eq("agency_id", profile.agency_id)
     .eq("role", "student")
     .order("display_name");
 
-  if (advisorFilter) {
-    studentsQuery = studentsQuery.eq("primary_advisor_id", advisorFilter);
-  }
+  // Batch 26: advisor filtering now goes through student_advisors
+  // (a student can have up to 3 advisors) instead of the old
+  // primary_advisor_id equality check — handled below once we've
+  // fetched each student's assigned advisor IDs.
 
   const { data: studentsRaw, error: studentsError } = await studentsQuery;
   if (studentsError) {
@@ -88,8 +105,31 @@ export default async function AgencyStudentsPage({
     // this line if the student list ever looks wrong.
     console.error("AgencyStudentsPage: failed to load students", studentsError);
   }
+
+  // Batch 26: every student's current advisor assignments (up to 3
+  // each), fetched once and grouped in memory — used for both the
+  // "Advisor: not yet assigned" filter and the assignment UI on each
+  // student's card.
+  const allStudentIds = (studentsRaw || []).map((s: any) => s.id);
+  const { data: assignmentsRaw } = allStudentIds.length
+    ? await supabase
+        .from("student_advisors")
+        .select("student_id, advisor_id")
+        .in("student_id", allStudentIds)
+    : { data: [] as { student_id: string; advisor_id: string }[] };
+  const advisorIdsByStudentId = new Map<string, string[]>();
+  for (const row of assignmentsRaw || []) {
+    const list = advisorIdsByStudentId.get(row.student_id) || [];
+    list.push(row.advisor_id);
+    advisorIdsByStudentId.set(row.student_id, list);
+  }
+
+  const studentsFiltered = advisorFilter
+    ? (studentsRaw || []).filter((s: any) => (advisorIdsByStudentId.get(s.id) || []).includes(advisorFilter))
+    : studentsRaw || [];
+
   const sortByDeadline = sort === "deadline";
-  const students = sortByDeadline ? sortStudentsByDeadline(studentsRaw || []) : studentsRaw || [];
+  const students = sortByDeadline ? sortStudentsByDeadline(studentsFiltered) : studentsFiltered;
 
   // Batch 18: seat status per student. Batch 23: this is now also where
   // every per-seat lifecycle action (cancel / upgrade / set admission
@@ -310,8 +350,46 @@ export default async function AgencyStudentsPage({
                   >
                     基本資料
                   </a>
-                  <div className="text-xs text-slate">
-                    所屬顧問：{advisorNameById.get(student.primary_advisor_id) || "尚未指派"}
+                  <div className="text-xs relative">
+                    <details className="inline-block">
+                      <summary className="cursor-pointer text-slate underline decoration-dotted">
+                        所屬顧問：
+                        {(advisorIdsByStudentId.get(student.id) || []).length > 0
+                          ? (advisorIdsByStudentId.get(student.id) || [])
+                              .map((id) => advisorNameById.get(id) || "？")
+                              .join("、")
+                          : "尚未指派"}
+                      </summary>
+                      <form
+                        action={updateStudentAdvisors.bind(null, student.id)}
+                        className="mt-2 flex flex-col gap-1.5 rounded border border-line bg-slate-light/30 p-3 absolute z-10 shadow-card"
+                      >
+                        <div className="text-xs font-semibold text-ink mb-0.5">
+                          指派顧問（最多 3 位）
+                        </div>
+                        {(advisorsList || []).length === 0 ? (
+                          <p className="text-xs text-slate">機構內尚無顧問。</p>
+                        ) : (
+                          (advisorsList || []).map((a) => (
+                            <label key={a.id} className="flex items-center gap-1.5 text-xs text-ink whitespace-nowrap">
+                              <input
+                                type="checkbox"
+                                name="advisor_ids"
+                                value={a.id}
+                                defaultChecked={(advisorIdsByStudentId.get(student.id) || []).includes(a.id)}
+                              />
+                              {a.display_name}
+                            </label>
+                          ))
+                        )}
+                        <button
+                          type="submit"
+                          className="mt-1 rounded bg-ink px-2 py-1 text-xs font-semibold text-white self-start"
+                        >
+                          儲存
+                        </button>
+                      </form>
+                    </details>
                   </div>
                   {!seat && unassignedSeats.length > 0 && (
                     <form action={assignSeat} className="flex items-center gap-1">

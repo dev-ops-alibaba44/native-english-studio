@@ -4,6 +4,8 @@ import { getAgencyDashboardData } from "@/lib/agency-data";
 import { advisorStatus, utilizationPct } from "@/lib/capacity";
 import { updateCapacity } from "./actions";
 
+export const dynamic = "force-dynamic";
+
 const STATUS_PILL: Record<string, string> = {
   available: "bg-good-tint text-good",
   near: "bg-warn-tint text-warn",

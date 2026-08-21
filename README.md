@@ -2,6 +2,41 @@
 
 Next.js + Supabase web app for the Native English Studio platform.
 
+## 🆕 Batch 27 — agency self-signup, parent/individual direct-to-consumer accounts with a 7-day trial, and multi-advisor assignment
+
+Three big items from Dan's request, in order.
+
+**Multi-advisor assignment (up to 3 per student).** Replaces the old one-advisor-only `primary_advisor_id` model. New `student_advisors` join table (`batch26_multi_advisor.sql`), capped at 3 per student by a DB trigger as well as the app. On `/agency/students`, each student's "所屬顧問" line is now a small expandable checkbox list — pick up to 3 advisors, save. Caseload and capacity math on `/agency/capacity` now counts every advisor a student is assigned to, not just one.
+
+**Agency self-signup.** New public `/signup/agency/create` — a real account-creation form (agency name, admin name, email, password set directly since nobody exists yet to invite them), which drops straight into Stripe Checkout for the $2,000 license fee. Fully automatic per Dan's answer: the instant Stripe confirms payment, the agency goes live — this reuses the existing webhook completely unchanged, since it already provisions any agency generically off `client_reference_id`. The original inquiry-form page (`/signup/agency`) is still there with a prominent link into the new real flow, for anyone who'd still rather talk to a person first.
+
+**Parent / individual direct-to-consumer accounts.** New `parent` role, capped at 3 children per parent (DB-enforced). Public `/signup/individual/create`: parent sets their own password directly; their first child gets an invite email to set their own (same pattern as agency-created students). Two required, separate disclaimers before submitting — the standard legal-consent checkbox, and a new one specifically about trial terms.
+- **Two payment paths, both explained on the form**: "start a 7-day trial" (card collected now, charged on day 7) or "pay now" (charged immediately, no trial). 
+- **The irreversible part, exactly as specified**: if a trial subscription is canceled before converting to a real payment, the Stripe webhook deletes the parent account and every child under it — immediately, with no soft-delete and no recovery path. This only fires if the account was still in `trialing` status in our own database at the moment of cancellation; a converted, paying customer who cancels later is unaffected (just deactivated, like an agency cancellation).
+- **AI usage cap during trial**: a simple 20-call total cap (not per-day — the whole trial is 7 days) enforced in `lib/parent-trial.ts`, wired into all three AI entry points (brainstorm, essay feedback, profile assessment). Doesn't apply once trial converts to paid, and never applies to agency-linked students.
+- New `/parent` portal: child overview, "+ 新增子女" (up to the cap, adds a prorated line item to the parent's existing Stripe subscription rather than a second subscription), and `/parent/billing` showing trial countdown / AI usage / a link into Stripe's own billing portal for cancellation.
+
+**⚠️ Manual setup required before this works — I cannot create Stripe objects from this sandbox (no network access):**
+1. In Stripe Dashboard, create two new **Products**, each with one **recurring annual Price**: "Basic Seat (Direct)" and "Advanced Seat (Direct)". Match whatever your current agency 標準席次/進階席次 prices are for now — check Stripe Dashboard for those amounts, since they're not in this codebase anywhere. These are deliberately separate Price IDs from the agency ones so they can diverge later.
+2. Set the resulting Price IDs as new env vars in Vercel (and `.env.local`): `STRIPE_PRICE_PARENT_SEAT_BASIC`, `STRIPE_PRICE_PARENT_SEAT_ADVANCED`.
+3. Confirm your Stripe webhook is subscribed to `checkout.session.completed` and `customer.subscription.updated`/`.deleted` (should already be, since agencies use the same events) — no new webhook endpoint needed, item 6 reuses the existing one.
+
+**Known simplification**: parent invoices aren't recorded in `billing_events` (that table is agency-only, `agency_id not null`) — parents view their own invoice history via the Stripe billing portal link instead of an in-app history table. Worth a proper table later if that becomes annoying.
+
+**How to apply:**
+1. Run `supabase/batch26_multi_advisor.sql`, then `supabase/batch27_agency_and_parent_signup.sql`, in that order.
+2. Complete the Stripe setup above — the parent signup flow will redirect to a "payment system not configured" error page until both price env vars are set.
+3. Stop the dev server, unzip, `rm -rf node_modules .next package-lock.json && npm install && npm run build`.
+4. Push.
+
+## 🆕 Batch 26 — student disappearing after seat upgrade, invite email wording, and a more durable fix for links pointing at localhost
+
+**Student vanishing from `/agency/students` immediately after an upgrade, reappearing on manual refresh.** Added `export const dynamic = "force-dynamic"` to `/agency/students`, `/agency/billing/students`, and `/agency/capacity` — removes any possibility of a stale cached render being served right after a server-action redirect, on top of the `revalidatePath` calls already in place.
+
+**Invite email said "student account" — but agencies use the same template for advisors too.** Changed the wording to just "an account has been created for you," role-neutral.
+
+**Invite link still pointing at localhost despite `NEXT_PUBLIC_SITE_URL` being set correctly in Vercel.** Root cause: `NEXT_PUBLIC_SITE_URL` is inlined into the compiled bundle at **build time** — adding or changing it in the Vercel dashboard does nothing until a fresh deployment actually builds. Rather than rely on remembering to redeploy every time this changes, `lib/site-url.ts` no longer reads any env var at all — it always derives the origin from the incoming request's own headers, correct by construction on every single request in every environment, nothing to configure or get out of sync.
+
 ## 🆕 Batch 25 — Stripe stale-subscription-item crashes fixed, invite/checkout links no longer point at localhost, branded email templates for the rest of Supabase Auth, and agency-initiated advisor sign-up
 
 Seven items from Dan's testing report, in the order given.

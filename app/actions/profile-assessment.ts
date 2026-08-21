@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthropic";
 import { MONTHLY_PROFILE_ASSESSMENT_LIMIT } from "@/lib/ai-limits";
 import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
+import { checkAndConsumeParentTrialAiQuota } from "@/lib/parent-trial";
 
 function hashProfileSummary(summary: string): string {
   return createHash("sha256").update(summary).digest("hex");
@@ -200,6 +201,9 @@ export async function generateProfileAssessment(
   if (lastLog?.input_hash && lastLog.input_hash === inputHash && lastLog.content) {
     return { success: true, content: lastLog.content, cached: true, cachedAt: lastLog.created_at };
   }
+
+  const trialQuota = await checkAndConsumeParentTrialAiQuota(studentId);
+  if (!trialQuota.allowed) return { success: false, error: "parent_trial_limit_reached" };
 
   const { used, limit } = await getProfileAssessmentUsage(studentId);
   if (used >= limit) return { success: false, error: "monthly_limit_reached" };

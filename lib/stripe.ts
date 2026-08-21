@@ -53,6 +53,19 @@ export const STRIPE_PRICE_LICENSE = process.env.STRIPE_PRICE_LICENSE || "";
 export const STRIPE_PRICE_SEAT_STANDARD = process.env.STRIPE_PRICE_SEAT_STANDARD || "";
 export const STRIPE_PRICE_SEAT_PREMIUM = process.env.STRIPE_PRICE_SEAT_PREMIUM || "";
 
+// Batch 27: direct-to-consumer (parent/individual) pricing — deliberately
+// SEPARATE Price IDs from the agency seat prices above, even though Dan
+// wants them to start at the same dollar amount, specifically so the two
+// can diverge later without one price change accidentally affecting both
+// channels. These must be created manually in the Stripe Dashboard (this
+// sandbox has no network access to call Stripe's API) — see the README
+// for exact setup steps.
+//
+//   STRIPE_PRICE_PARENT_SEAT_BASIC     - direct-to-consumer basic seat (recurring, yearly)
+//   STRIPE_PRICE_PARENT_SEAT_ADVANCED  - direct-to-consumer advanced seat (recurring, yearly)
+export const STRIPE_PRICE_PARENT_SEAT_BASIC = process.env.STRIPE_PRICE_PARENT_SEAT_BASIC || "";
+export const STRIPE_PRICE_PARENT_SEAT_ADVANCED = process.env.STRIPE_PRICE_PARENT_SEAT_ADVANCED || "";
+
 // Batch 25: cancelSeat/upgradeSeat both retrieve/modify a Stripe
 // subscription item by an ID stored on the seat row (`
 // stripe_subscription_item_id`). Dan hit "Customer ... does not have a

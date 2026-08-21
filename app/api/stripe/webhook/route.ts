@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe, STRIPE_PRICE_SEAT_STANDARD, STRIPE_PRICE_SEAT_PREMIUM } from "@/lib/stripe";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { admissionCycleExpiry, mapSubscriptionStatus } from "@/lib/seats";
+import { admissionCycleExpiry, mapSubscriptionStatus, mapParentSubscriptionStatus } from "@/lib/seats";
 
 // Stripe requires the raw request body (unparsed) to verify the signature,
 // so this route must NOT run any body-parsing middleware. App Router route
@@ -33,6 +33,41 @@ async function findAgencyForCustomer(
     .eq("stripe_customer_id", customerId)
     .maybeSingle();
   return data ?? null;
+}
+
+// Batch 27: parent accounts are looked up the same way agencies are —
+// by stripe_customer_id — since customer.subscription.updated/deleted
+// events only carry a customer ID, not our own metadata, once the
+// subscription already exists.
+async function findParentAccountForCustomer(
+  admin: ReturnType<typeof createAdminClient>,
+  customerId: string
+): Promise<{ id: string; plan_status: string } | null> {
+  const { data } = await admin
+    .from("parent_accounts")
+    .select("id, plan_status")
+    .eq("stripe_customer_id", customerId)
+    .maybeSingle();
+  return data ?? null;
+}
+
+// Batch 27: the irreversible part of Dan's trial-cancellation spec —
+// "if they cancel on day 6, ALL the data gets erased, no way to
+// recover." Only ever called when a parent's subscription is canceled
+// WHILE plan_status was still 'trialing' in our own database (i.e. no
+// checkout/payment event had ever flipped it to 'active') — a parent
+// who converted to paid and cancels later is NOT affected by this; that
+// path just deactivates the account like an agency cancellation does,
+// handled separately below.
+async function wipeParentAccount(admin: ReturnType<typeof createAdminClient>, parentId: string) {
+  const { data: children } = await admin.from("profiles").select("id").eq("parent_id", parentId);
+  for (const child of children || []) {
+    await admin.auth.admin.deleteUser(child.id);
+  }
+  // Cascades to the profiles row and parent_accounts row via their
+  // "on delete cascade" foreign keys — no separate deletes needed.
+  await admin.auth.admin.deleteUser(parentId);
+  console.log(`wipeParentAccount: erased parent ${parentId} and ${children?.length || 0} child account(s) after trial cancellation.`);
 }
 
 // Batch 22: creates the seats subscription as its own separate Stripe
@@ -146,6 +181,36 @@ export async function POST(req: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+
+        // Batch 27: parent checkouts are tagged kind='parent' in
+        // metadata at creation time (app/actions/parent-signup.ts) —
+        // checked first since parent and agency checkouts otherwise
+        // share the same event type and client_reference_id shape.
+        if (session.metadata?.kind === "parent") {
+          const parentId = session.metadata?.parent_id as string | undefined;
+          if (!parentId || !session.subscription || !session.customer) break;
+
+          const subscription = await getStripe().subscriptions.retrieve(
+            typeof session.subscription === "string" ? session.subscription : session.subscription.id
+          );
+          const customerId =
+            typeof session.customer === "string" ? session.customer : session.customer.id;
+
+          await admin
+            .from("parent_accounts")
+            .update({
+              stripe_customer_id: customerId,
+              stripe_subscription_id: subscription.id,
+              plan_status: mapParentSubscriptionStatus(subscription.status),
+              trial_ends_at: subscription.trial_end
+                ? new Date(subscription.trial_end * 1000).toISOString()
+                : null,
+              current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+            })
+            .eq("id", parentId);
+          break;
+        }
+
         const agencyId =
           session.client_reference_id ||
           (session.metadata?.agency_id as string | undefined);
@@ -214,6 +279,32 @@ export async function POST(req: NextRequest) {
           typeof subscription.customer === "string"
             ? subscription.customer
             : subscription.customer.id;
+
+        // Batch 27: parent accounts checked first — a customer is
+        // either an agency or a parent, never both, so this is a safe
+        // short-circuit rather than something that needs metadata.kind
+        // to disambiguate (unlike the license-vs-seats check below,
+        // which both belong to the same agency customer).
+        const parentAccount = await findParentAccountForCustomer(admin, customerId);
+        if (parentAccount) {
+          const newStatus = mapParentSubscriptionStatus(subscription.status);
+          const wasStillInTrial = parentAccount.plan_status === "trialing";
+
+          if (wasStillInTrial && (newStatus === "canceled" || subscription.status === "canceled")) {
+            // Exactly the scenario Dan specified: canceled before the
+            // trial ever converted to a real payment. Irreversible.
+            await wipeParentAccount(admin, parentAccount.id);
+          } else {
+            await admin
+              .from("parent_accounts")
+              .update({
+                plan_status: newStatus,
+                current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+              })
+              .eq("id", parentAccount.id);
+          }
+          break;
+        }
 
         // Batch 22: this event could be for EITHER the license or the
         // seats subscription — they're two separate Subscription

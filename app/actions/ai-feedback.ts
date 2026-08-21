@@ -6,6 +6,7 @@ import { getAnthropic, AI_FEEDBACK_MODEL, cachedSystemBlock } from "@/lib/anthro
 import { getLiveblocksServerClient, AI_FEEDBACK_USER_ID } from "@/lib/liveblocks-server";
 import { MONTHLY_ESSAY_FEEDBACK_LIMIT } from "@/lib/ai-limits";
 import { assertSeatActive, SeatInactiveError } from "@/lib/seats";
+import { checkAndConsumeParentTrialAiQuota } from "@/lib/parent-trial";
 
 function periodStart(): Date {
   const d = new Date();
@@ -80,6 +81,9 @@ export async function generateEssayFeedback(
     if (err instanceof SeatInactiveError) return { success: false, error: err.code };
     throw err;
   }
+
+  const trialQuota = await checkAndConsumeParentTrialAiQuota(application.student_id);
+  if (!trialQuota.allowed) return { success: false, error: "parent_trial_limit_reached" };
 
   const { used, limit } = await getEssayFeedbackUsage(application.student_id);
   if (used >= limit) return { success: false, error: "monthly_limit_reached" };

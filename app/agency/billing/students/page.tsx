@@ -2,6 +2,8 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { SEAT_STATUS_LABEL, SEAT_STATUS_PILL } from "@/lib/seats";
 
+export const dynamic = "force-dynamic";
+
 // Batch 23: replaces the removed 席次清單 section on the main billing
 // page. That section mixed seat-level management actions (cancel /
 // upgrade / set admission cycle) with a status list — the actions moved

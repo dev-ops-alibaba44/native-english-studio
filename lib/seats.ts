@@ -16,9 +16,23 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Call `assertSeatActive(studentId)` as the very first thing (after
 // confirming the caller's identity/access), before any write happens.
 export class SeatInactiveError extends Error {
-  code: "no_seat" | "expired" | "archived" | "canceled" | "license_inactive" | "seats_inactive";
+  code:
+    | "no_seat"
+    | "expired"
+    | "archived"
+    | "canceled"
+    | "license_inactive"
+    | "seats_inactive"
+    | "parent_account_inactive";
   constructor(
-    code: "no_seat" | "expired" | "archived" | "canceled" | "license_inactive" | "seats_inactive",
+    code:
+      | "no_seat"
+      | "expired"
+      | "archived"
+      | "canceled"
+      | "license_inactive"
+      | "seats_inactive"
+      | "parent_account_inactive",
     message: string
   ) {
     super(message);
@@ -35,6 +49,7 @@ export const SEAT_ERROR_MESSAGES: Record<string, string> = {
   canceled: "此席次已取消，無法使用。",
   license_inactive: "貴機構的授權訂閱目前未生效（已取消或付款逾期），所有學生帳號暫時僅能檢視。請至「帳單與繳費」確認訂閱狀態。",
   seats_inactive: "貴機構的席次訂閱目前未生效（已取消或付款逾期），所有學生帳號暫時僅能檢視。請至「帳單與繳費」確認訂閱狀態。",
+  parent_account_inactive: "此帳號的訂閱目前未生效，請完成付款以繼續使用。",
 };
 
 // A seat's admission cycle is the year the student STARTS university —
@@ -63,6 +78,29 @@ export function mapSubscriptionStatus(
     case "active":
     case "trialing":
       return "active";
+    case "past_due":
+    case "unpaid":
+      return "past_due";
+    default:
+      return "canceled";
+  }
+}
+
+// Batch 27: parent_accounts needs a SEPARATE mapping that does NOT
+// collapse "trialing" into "active" the way mapSubscriptionStatus does
+// above — the whole trial-cancellation data-wipe mechanic (and the AI
+// usage cap during trial) depends on being able to tell "actually
+// converted to a paying customer" apart from "still in the trial
+// window," which mapSubscriptionStatus's agency-oriented behavior would
+// silently erase.
+export function mapParentSubscriptionStatus(
+  status: "active" | "trialing" | "past_due" | "unpaid" | "canceled" | "incomplete" | "incomplete_expired" | "paused"
+): "active" | "trialing" | "past_due" | "canceled" {
+  switch (status) {
+    case "active":
+      return "active";
+    case "trialing":
+      return "trialing";
     case "past_due":
     case "unpaid":
       return "past_due";
@@ -154,6 +192,31 @@ export function numberSeatsByType<T extends { id: string; seat_type: string; pur
 
 export async function assertSeatActive(studentId: string): Promise<void> {
   const admin = createAdminClient();
+
+  // Batch 27: a parent-linked student (profiles.parent_id set) has no
+  // agency `seats` row at all — this branch checks the parent's own
+  // subscription status instead, then returns. Both "trialing" and
+  // "active" plan_status are usable; everything else (inactive,
+  // past_due, canceled) blocks writes the same way an inactive agency
+  // license does.
+  const { data: studentProfile } = await admin
+    .from("profiles")
+    .select("parent_id")
+    .eq("id", studentId)
+    .maybeSingle();
+
+  if (studentProfile?.parent_id) {
+    const { data: parentAccount } = await admin
+      .from("parent_accounts")
+      .select("plan_status")
+      .eq("id", studentProfile.parent_id)
+      .maybeSingle();
+
+    if (!parentAccount || !["trialing", "active"].includes(parentAccount.plan_status)) {
+      throw new SeatInactiveError("parent_account_inactive", SEAT_ERROR_MESSAGES.parent_account_inactive);
+    }
+    return;
+  }
 
   const { data: seat } = await admin
     .from("seats")

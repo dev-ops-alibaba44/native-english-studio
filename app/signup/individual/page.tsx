@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { SiteHeader } from "@/components/marketing/SiteHeader";
 import { SiteFooter } from "@/components/marketing/SiteFooter";
 import { WaitlistForm } from "@/components/marketing/WaitlistForm";
@@ -20,10 +21,25 @@ export default function IndividualSignupPage() {
           加入候補名單
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-slate">
-          Native English Studio 目前主要透過合作的留學顧問機構提供服務。如果您不透過機構、想直接為自己或孩子使用平台，請先留下聯絡方式——開放個人使用時，我們會第一時間通知您。
+          Native English Studio 目前主要透過合作的留學顧問機構提供服務。
         </p>
 
-        <div className="mt-8">
+        <div className="mt-6 rounded border border-brand/30 bg-brand/5 p-5">
+          <p className="text-sm text-ink font-semibold mb-1">想直接開始？</p>
+          <p className="text-sm text-slate mb-3">
+            也可以直接註冊家長帳號，最多可以新增 3 位子女，7 天試用期或直接付款皆可。
+          </p>
+          <Link
+            href="/signup/individual/create"
+            className="inline-block rounded bg-ink px-4 py-2 text-sm font-semibold text-white"
+          >
+            立即註冊家長帳號 →
+          </Link>
+        </div>
+
+        <p className="mt-6 text-xs text-slate">或者，如果您想先了解更多再決定，可以留下聯絡方式：</p>
+
+        <div className="mt-4">
           <WaitlistForm />
         </div>
       </main>

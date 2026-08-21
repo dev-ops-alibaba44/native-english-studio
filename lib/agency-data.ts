@@ -31,9 +31,21 @@ export async function getAgencyDashboardData(supabase: SupabaseClient, agencyId:
 
   const applications = applicationsRaw || [];
 
+  // Batch 26: caseload/overdue counts now come from student_advisors
+  // (up to 3 advisors per student) instead of the old one-advisor-only
+  // primary_advisor_id — a student assigned to multiple advisors counts
+  // toward every one of their caseloads, since each of them is actually
+  // responsible for that student.
+  const { data: assignmentsRaw } = studentIds.length
+    ? await supabase.from("student_advisors").select("student_id, advisor_id").in("student_id", studentIds)
+    : { data: [] as { student_id: string; advisor_id: string }[] };
+  const assignments = assignmentsRaw || [];
+
   const advisors = (advisorsRaw || []).map((advisor) => {
-    const theirStudents = students.filter((s) => s.primary_advisor_id === advisor.id);
-    const theirStudentIds = new Set(theirStudents.map((s) => s.id));
+    const theirStudentIds = new Set(
+      assignments.filter((a) => a.advisor_id === advisor.id).map((a) => a.student_id)
+    );
+    const theirStudents = students.filter((s) => theirStudentIds.has(s.id));
     const theirApplications = applications.filter((a: any) => theirStudentIds.has(a.student_id));
     const overdueCount = theirApplications.filter((a: any) => isOverdue(a.deadline, a.stage)).length;
 

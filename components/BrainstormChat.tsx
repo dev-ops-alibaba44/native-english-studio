@@ -15,6 +15,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   ai_empty_response: "AI 未能產生回覆，請稍後再試。",
   not_signed_in: "請重新登入後再試。",
   daily_limit_reached: "今日 AI 腦力激盪次數已達上限，請明天再繼續，或直接把目前想法儲存下來。",
+  parent_trial_limit_reached: "7 天試用期間的 AI 使用次數已達上限。付款啟用正式帳號後即可恢復使用。",
 };
 
 export function BrainstormChat({

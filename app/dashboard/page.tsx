@@ -5,6 +5,7 @@ const ROLE_LABEL: Record<string, string> = {
   student: "學生",
   advisor: "顧問",
   agency_admin: "機構管理者",
+  parent: "家長",
   super_admin: "超級管理者",
   marketing: "行銷",
 };
@@ -38,6 +39,9 @@ export default async function DashboardPage() {
   }
   if (profile?.role === "agency_admin") {
     redirect("/agency");
+  }
+  if (profile?.role === "parent") {
+    redirect("/parent");
   }
   if (profile?.role === "super_admin") {
     redirect("/super-admin");
